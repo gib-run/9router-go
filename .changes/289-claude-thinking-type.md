@@ -7,3 +7,6 @@
   `claude-budget` branches of upstream `thinkingUnified.js`: `adaptive` + `output_config.effort`
   for adaptive models, `enabled` + `budget_tokens` (clamped below `max_tokens`) otherwise.
   An explicit `thinking.type` from the client is never overwritten.
+- `claude-fable-5` is declared `claude-adaptive` in the per-model table; it used to fall through the
+  `*claude*fable*` glob to `claude-budget`, which would have sent the manual `enabled`/`budget_tokens`
+  mode that current Claude models do not accept.

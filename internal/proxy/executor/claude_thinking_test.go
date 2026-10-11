@@ -184,6 +184,7 @@ func TestEnsureClaudeMessages_ThinkingType(t *testing.T) {
 		{"adaptive minimal clamps to low", `{"reasoning_effort":"minimal","messages":[{"role":"user","content":"hi"}]}`, "claude-sonnet-5", "adaptive", 0, "low"},
 		{"budget model", `{"reasoning_effort":"low","max_tokens":8000,"messages":[{"role":"user","content":"hi"}]}`, "claude-haiku-4-5", "enabled", 1024, ""},
 		{"budget capped below max_tokens", `{"reasoning_effort":"high","max_tokens":4096,"messages":[{"role":"user","content":"hi"}]}`, "claude-haiku-4-5", "enabled", 4095, ""},
+		{"fable 5 is adaptive, not budget", `{"reasoning_effort":"high","messages":[{"role":"user","content":"hi"}]}`, "claude-fable-5", "adaptive", 0, "high"},
 		{"responses effort", `{"reasoning":{"effort":"medium"},"messages":[{"role":"user","content":"hi"}]}`, "claude-sonnet-5", "adaptive", 0, "medium"},
 		{"explicit type is kept", `{"reasoning_effort":"high","thinking":{"type":"disabled"},"messages":[{"role":"user","content":"hi"}]}`, "claude-sonnet-5", "disabled", 0, ""},
 		{"none sends no thinking", `{"reasoning_effort":"none","messages":[{"role":"user","content":"hi"}]}`, "claude-sonnet-5", "", 0, ""},
