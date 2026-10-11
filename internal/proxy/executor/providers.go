@@ -808,6 +808,7 @@ func ensureMessagesMaxTokens(body []byte, model string) []byte {
 	// translation on its own — capture it into the Claude field first.
 	// (upstream thinkingUnified captureThinking)
 	applyClaudeThinkingDisplay(reqMap)
+	applyClaudeThinkingType(reqMap, model)
 	delete(reqMap, "stream_options")
 	delete(reqMap, "store")
 	delete(reqMap, "reasoning_effort")

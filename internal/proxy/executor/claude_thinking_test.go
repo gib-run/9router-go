@@ -167,3 +167,57 @@ func hasJSONKey(body []byte, key string) bool {
 	_, ok := reqMap[key]
 	return ok
 }
+
+// TestEnsureClaudeMessages_ThinkingType: an OpenAI client's reasoning_effort
+// must yield a Claude `thinking` object that carries `type` — Anthropic
+// answers `400 thinking.type: Field required` otherwise.
+func TestEnsureClaudeMessages_ThinkingType(t *testing.T) {
+	tests := []struct {
+		name       string
+		body       string
+		model      string
+		wantType   string
+		wantBudget float64
+		wantEffort string
+	}{
+		{"adaptive model", `{"reasoning_effort":"high","messages":[{"role":"user","content":"hi"}]}`, "claude-sonnet-5", "adaptive", 0, "high"},
+		{"adaptive minimal clamps to low", `{"reasoning_effort":"minimal","messages":[{"role":"user","content":"hi"}]}`, "claude-sonnet-5", "adaptive", 0, "low"},
+		{"budget model", `{"reasoning_effort":"low","max_tokens":8000,"messages":[{"role":"user","content":"hi"}]}`, "claude-haiku-4-5", "enabled", 1024, ""},
+		{"budget capped below max_tokens", `{"reasoning_effort":"high","max_tokens":4096,"messages":[{"role":"user","content":"hi"}]}`, "claude-haiku-4-5", "enabled", 4095, ""},
+		{"responses effort", `{"reasoning":{"effort":"medium"},"messages":[{"role":"user","content":"hi"}]}`, "claude-sonnet-5", "adaptive", 0, "medium"},
+		{"explicit type is kept", `{"reasoning_effort":"high","thinking":{"type":"disabled"},"messages":[{"role":"user","content":"hi"}]}`, "claude-sonnet-5", "disabled", 0, ""},
+		{"none sends no thinking", `{"reasoning_effort":"none","messages":[{"role":"user","content":"hi"}]}`, "claude-sonnet-5", "", 0, ""},
+		{"no ask sends no thinking", `{"messages":[{"role":"user","content":"hi"}]}`, "claude-sonnet-5", "", 0, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out := EnsureClaudeMessages([]byte(tt.body), tt.model)
+			var m map[string]any
+			if err := json.Unmarshal(out, &m); err != nil {
+				t.Fatal(err)
+			}
+			th, _ := m["thinking"].(map[string]any)
+			gotType, _ := th["type"].(string)
+			if gotType != tt.wantType {
+				t.Fatalf("thinking.type = %q, want %q (body %s)", gotType, tt.wantType, out)
+			}
+			if tt.wantType == "" && th != nil {
+				t.Errorf("thinking should be absent: %s", out)
+			}
+			if tt.wantBudget != 0 {
+				if b, _ := th["budget_tokens"].(float64); b != tt.wantBudget {
+					t.Errorf("budget_tokens = %v, want %v", b, tt.wantBudget)
+				}
+			}
+			if tt.wantEffort != "" {
+				oc, _ := m["output_config"].(map[string]any)
+				if oc["effort"] != tt.wantEffort {
+					t.Errorf("output_config.effort = %v, want %q", oc["effort"], tt.wantEffort)
+				}
+			}
+			if _, ok := m["reasoning_effort"]; ok {
+				t.Errorf("reasoning_effort survived: %s", out)
+			}
+		})
+	}
+}
