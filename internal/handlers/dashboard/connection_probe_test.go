@@ -588,4 +588,7 @@ func TestTestConnection_CodexProbeSendsAccountIDHeader(t *testing.T) {
 	if gotHeaders["chatgpt-account-id"] != "acct-123" {
 		t.Errorf("chatgpt-account-id header = %q, want acct-123", gotHeaders["chatgpt-account-id"])
 	}
+	if gotHeaders["Authorization"] != "Bearer tok" {
+		t.Errorf("Authorization header = %q, want %q", gotHeaders["Authorization"], "Bearer tok")
+	}
 }
