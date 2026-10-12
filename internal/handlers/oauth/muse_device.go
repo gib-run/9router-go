@@ -100,6 +100,12 @@ func museStart() (map[string]any, error) {
 	if strVal(data, "device_code") == "" {
 		return nil, fmt.Errorf("Muse Code device code response missing device_code")
 	}
+	if strVal(data, "user_code") == "" {
+		return nil, fmt.Errorf("Muse Code device code response missing user_code")
+	}
+	if strVal(data, "verification_uri") == "" {
+		return nil, fmt.Errorf("Muse Code device code response missing verification_uri")
+	}
 	data["session"] = map[string]any{}
 	return data, nil
 }
@@ -184,7 +190,7 @@ func musePoll(code string) (deviceTokens, error) {
 	// The stored credential is the minted Model API key, not the Meta account
 	// token; the account token is kept so a future re-mint needs no new login.
 	t.access = apiKey
-	t.email = strings.ToLower(strings.TrimSpace(strVal(key, "user_email")))
+	t.email = museAccountEmail(key, access)
 	t.extra = map[string]any{
 		"authMethod":       "device_code",
 		"oauthAccessToken": access,
@@ -193,6 +199,16 @@ func musePoll(code string) (deviceTokens, error) {
 		t.extra["subscriptionTier"] = tier
 	}
 	return t, nil
+}
+
+// museAccountEmail resolves the connection email: prefer the mint response,
+// fall back to the Meta account token's JWT claims. The minted API key
+// itself is not a JWT, so extractEmailFromJWT on it would never work.
+func museAccountEmail(key map[string]any, accountToken string) string {
+	if email := strings.ToLower(strings.TrimSpace(strVal(key, "user_email"))); email != "" {
+		return email
+	}
+	return strings.ToLower(strings.TrimSpace(extractEmailFromJWT(accountToken)))
 }
 
 // museMintKey exchanges a Meta account token for the Model API key the chat
