@@ -2,6 +2,7 @@ package executor
 
 import (
 	json "encoding/json/v2"
+	"slices"
 	"strings"
 
 	"9router/proxy/internal/providers"
@@ -106,16 +107,24 @@ func openAIReasoningEffort(reqMap map[string]any) string {
 	return ""
 }
 
+// claudeThinkingOutputHeadroom is the room left for the visible answer when
+// max_tokens is raised to fit a thinking budget (upstream open-sse/translator/
+// formats/maxTokens.js).
+const claudeThinkingOutputHeadroom = 1024
+
 // applyClaudeThinkingType gives the Claude `thinking` object the `type` the
 // Messages API requires. Without it an OpenAI client that sets reasoning_effort
 // ends up with `thinking: {display: "summarized"}` (see
 // applyClaudeThinkingDisplay) and Anthropic answers
 // `400 thinking.type: Field required`.
 //
+// provider selects the capability table row (minimax-code, opencode-zen and
+// opencode-go reach this code too and declare their own thinking format).
+//
 // Mirrors the claude-adaptive / claude-budget branches of upstream
 // open-sse/translator/concerns/thinkingUnified.js applyThinking. Must run
 // before the OpenAI-only reasoning keys are stripped.
-func applyClaudeThinkingType(reqMap map[string]any, model string) {
+func applyClaudeThinkingType(reqMap map[string]any, provider, model string) {
 	thinking, _ := reqMap["thinking"].(map[string]any)
 	if thinking != nil {
 		if t, ok := thinking["type"].(string); ok && t != "" {
@@ -125,10 +134,21 @@ func applyClaudeThinkingType(reqMap map[string]any, model string) {
 
 	effort := openAIReasoningEffort(reqMap)
 	switch effort {
-	case "", "none", "off", "minimal_off":
+	case "none", "off", "minimal_off":
+		// An explicit "no reasoning" must not leave a typeless thinking
+		// object behind (it would carry only `display`): same 400.
+		if thinking != nil {
+			reqMap["thinking"] = map[string]any{"type": "disabled"}
+		}
 		return
-	}
-	if effort == "auto" {
+	case "":
+		if thinking == nil {
+			return
+		}
+		// Only a display was captured (Responses reasoning.summary without
+		// an effort): the client wants reasoning text, so reasoning is on.
+		effort = "medium"
+	case "auto":
 		effort = "high"
 	}
 	if thinking == nil {
@@ -136,7 +156,7 @@ func applyClaudeThinkingType(reqMap map[string]any, model string) {
 		reqMap["thinking"] = thinking
 	}
 
-	caps := providers.GetCapabilitiesForModel("claude", model)
+	caps := providers.GetCapabilitiesForModel(provider, model)
 	if caps.ThinkingFormat == "claude-adaptive" {
 		thinking["type"] = "adaptive"
 		level := effort
@@ -144,7 +164,7 @@ func applyClaudeThinkingType(reqMap map[string]any, model string) {
 		case "minimal":
 			level = "low"
 		case "xhigh":
-			if !containsString(providers.GetThinkingLevels("claude", model), "xhigh") {
+			if !slices.Contains(providers.GetThinkingLevels(provider, model), "xhigh") {
 				level = "high"
 			}
 		}
@@ -174,25 +194,31 @@ func applyClaudeThinkingType(reqMap map[string]any, model string) {
 	if budget < claudeMinThinkingBudget {
 		budget = claudeMinThinkingBudget
 	}
-	// budget_tokens must stay strictly below max_tokens.
-	if maxTokens, ok := reqMap["max_tokens"].(int); ok && budget >= maxTokens {
-		budget = maxTokens - 1
+
+	// budget_tokens must stay strictly below max_tokens. Raise max_tokens to
+	// leave room for the answer (capped at the model's output limit) rather
+	// than crushing the budget; shrink the budget only when it alone already
+	// reaches the ceiling. Mirrors upstream formats/claude.js + maxTokens.js.
+	if maxTokens, ok := reqMap["max_tokens"].(int); ok {
+		if want := budget + claudeThinkingOutputHeadroom; maxTokens < want {
+			if caps.MaxOutput > 0 && want > caps.MaxOutput {
+				want = caps.MaxOutput
+			}
+			if want > maxTokens {
+				maxTokens = want
+				reqMap["max_tokens"] = maxTokens
+			}
+		}
+		if budget >= maxTokens {
+			budget = maxTokens - 1
+		}
 	}
 	if budget < claudeMinThinkingBudget {
-		// max_tokens leaves no room for the minimum budget: send no thinking
-		// at all rather than a body Anthropic would reject.
+		// No room for the minimum budget: send no thinking at all rather
+		// than a body Anthropic would reject.
 		delete(reqMap, "thinking")
 		return
 	}
 	thinking["type"] = "enabled"
 	thinking["budget_tokens"] = budget
-}
-
-func containsString(list []string, want string) bool {
-	for _, s := range list {
-		if s == want {
-			return true
-		}
-	}
-	return false
 }

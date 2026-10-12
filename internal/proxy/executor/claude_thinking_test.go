@@ -183,11 +183,13 @@ func TestEnsureClaudeMessages_ThinkingType(t *testing.T) {
 		{"adaptive model", `{"reasoning_effort":"high","messages":[{"role":"user","content":"hi"}]}`, "claude-sonnet-5", "adaptive", 0, "high"},
 		{"adaptive minimal clamps to low", `{"reasoning_effort":"minimal","messages":[{"role":"user","content":"hi"}]}`, "claude-sonnet-5", "adaptive", 0, "low"},
 		{"budget model", `{"reasoning_effort":"low","max_tokens":8000,"messages":[{"role":"user","content":"hi"}]}`, "claude-haiku-4-5", "enabled", 1024, ""},
-		{"budget capped below max_tokens", `{"reasoning_effort":"high","max_tokens":4096,"messages":[{"role":"user","content":"hi"}]}`, "claude-haiku-4-5", "enabled", 4095, ""},
+		{"max_tokens raised instead of crushing the budget", `{"reasoning_effort":"high","max_tokens":4096,"messages":[{"role":"user","content":"hi"}]}`, "claude-haiku-4-5", "enabled", 24576, ""},
 		{"fable 5 is adaptive, not budget", `{"reasoning_effort":"high","messages":[{"role":"user","content":"hi"}]}`, "claude-fable-5", "adaptive", 0, "high"},
 		{"responses effort", `{"reasoning":{"effort":"medium"},"messages":[{"role":"user","content":"hi"}]}`, "claude-sonnet-5", "adaptive", 0, "medium"},
 		{"explicit type is kept", `{"reasoning_effort":"high","thinking":{"type":"disabled"},"messages":[{"role":"user","content":"hi"}]}`, "claude-sonnet-5", "disabled", 0, ""},
 		{"none sends no thinking", `{"reasoning_effort":"none","messages":[{"role":"user","content":"hi"}]}`, "claude-sonnet-5", "", 0, ""},
+		{"responses none+summary is disabled, never typeless", `{"reasoning":{"summary":"auto","effort":"none"},"messages":[{"role":"user","content":"hi"}]}`, "claude-sonnet-5", "disabled", 0, ""},
+		{"responses summary without effort is typed", `{"reasoning":{"summary":"auto"},"messages":[{"role":"user","content":"hi"}]}`, "claude-sonnet-5", "adaptive", 0, "medium"},
 		{"no ask sends no thinking", `{"messages":[{"role":"user","content":"hi"}]}`, "claude-sonnet-5", "", 0, ""},
 	}
 	for _, tt := range tests {
@@ -220,5 +222,56 @@ func TestEnsureClaudeMessages_ThinkingType(t *testing.T) {
 				t.Errorf("reasoning_effort survived: %s", out)
 			}
 		})
+	}
+}
+
+// TestEnsureClaudeMessages_ThinkingMaxTokens: the budget is kept and max_tokens
+// is raised to budget+1024 (capped at the model's output limit), so the answer
+// is not starved; only a budget that alone reaches the ceiling is shrunk.
+func TestEnsureClaudeMessages_ThinkingMaxTokens(t *testing.T) {
+	maxTokensOf := func(out []byte) (budget, maxTokens float64) {
+		var m map[string]any
+		if err := json.Unmarshal(out, &m); err != nil {
+			t.Fatal(err)
+		}
+		th, _ := m["thinking"].(map[string]any)
+		budget, _ = th["budget_tokens"].(float64)
+		maxTokens, _ = m["max_tokens"].(float64)
+		return
+	}
+
+	t.Run("default max_tokens is raised", func(t *testing.T) {
+		out := EnsureClaudeMessages([]byte(`{"reasoning_effort":"high","messages":[{"role":"user","content":"hi"}]}`), "claude-haiku-4-5")
+		if b, mt := maxTokensOf(out); b != 24576 || mt != 25600 {
+			t.Errorf("budget=%v max_tokens=%v, want 24576/25600 (%s)", b, mt, out)
+		}
+	})
+	t.Run("a larger client max_tokens is untouched", func(t *testing.T) {
+		out := EnsureClaudeMessages([]byte(`{"reasoning_effort":"low","max_tokens":8000,"messages":[{"role":"user","content":"hi"}]}`), "claude-haiku-4-5")
+		if b, mt := maxTokensOf(out); b != 1024 || mt != 8000 {
+			t.Errorf("budget=%v max_tokens=%v, want 1024/8000 (%s)", b, mt, out)
+		}
+	})
+}
+
+// TestEnsureClaudeMessagesFor_UsesLaneProvider: minimax-code declares its own
+// thinking format; looking the model up under "claude" picks the wrong one.
+func TestEnsureClaudeMessagesFor_UsesLaneProvider(t *testing.T) {
+	model := "MiniMax-M3"
+	want := providers.GetCapabilitiesForModel("minimax-code", model).ThinkingFormat
+	if want == providers.GetCapabilitiesForModel("claude", model).ThinkingFormat {
+		t.Skip("capability tables agree for this model")
+	}
+	out := EnsureClaudeMessagesFor([]byte(`{"reasoning_effort":"high","messages":[{"role":"user","content":"hi"}]}`), "minimax-code", model)
+	var m map[string]any
+	if err := json.Unmarshal(out, &m); err != nil {
+		t.Fatal(err)
+	}
+	th, _ := m["thinking"].(map[string]any)
+	if want == "claude-adaptive" && th["type"] != "adaptive" {
+		t.Errorf("thinking.type = %v, want adaptive (%s)", th["type"], out)
+	}
+	if want != "claude-adaptive" && th["type"] != "enabled" {
+		t.Errorf("thinking.type = %v, want enabled (%s)", th["type"], out)
 	}
 }
