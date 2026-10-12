@@ -66,6 +66,14 @@ func TestAggregatorProviders(t *testing.T) {
 			aliases: []string{"systemone"},
 		},
 		{
+			// SumoPod — Indonesian OpenAI-compatible gateway. Live /v1/models
+			// answers 401 without a token (like agnes), so the catalogue is
+			// seeded curated from the vendor's published model list.
+			id: "sumopod", baseURL: "https://ai.sumopod.com/v1/chat/completions",
+			models:  []string{"claude-haiku-4-5", "claude-sonnet-4-6", "claude-opus-4-6", "deepseek-v3-2", "deepseek-v4-flash", "deepseek-v4-pro", "glm-4-7", "glm-5", "glm-5-turbo", "glm-5.1", "kimi-k2-5-260127", "kimi-k2.6", "seed-2-0-code", "seed-2-0-lite", "seed-2-0-mini", "seed-2-0-pro", "qwen3.6-flash", "qwen3.6-plus", "mimo-v2-flash", "mimo-v2-omni", "mimo-v2-pro", "mimo-v2.5", "mimo-v2.5-pro", "MiniMax-M2.7-highspeed", "nvidia/nemotron-3-nano-30b", "openai/gpt-oss-20b", "qwen/qwen3-30b-a3b-instruct-2507", "zai/glm-4.7-fp8", "gemini/gemini-2.0-flash", "gemini/gemini-2.0-flash-lite", "gemini/gemini-2.5-flash", "gemini/gemini-2.5-flash-lite", "gemini/gemini-2.5-pro", "gemini/gemini-3-flash-preview", "gemini/gemini-3-pro-preview", "gemini/gemini-3.1-flash-lite-preview", "gemini/gemini-3.1-pro-preview", "gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano", "gpt-4o", "gpt-4o-mini", "gpt-5", "gpt-5-mini", "gpt-5-nano", "gpt-5.1", "gpt-5.1-codex", "gpt-5.1-codex-mini", "gpt-5.2", "gpt-5.2-codex"},
+			aliases: []string{"sp"},
+		},
+		{
 			id: "tinyfish", baseURL: "https://api.tinyfish.ai",
 			authHeader: "x-api-key", authScheme: "raw",
 		},

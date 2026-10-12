@@ -311,6 +311,15 @@ var KnownProviders = map[string]ProviderConfig{
 		AuthHeader: "Authorization",
 		AuthScheme: "bearer",
 	},
+	// SumoPod — Indonesian AI gateway (ai.sumopod.com), OpenAI-compatible
+	// chat completions with 50+ models across Claude, Gemini, GPT, DeepSeek,
+	// Qwen, GLM, Kimi, MiniMax, Seed and Mimo. Live /v1/models answers 401
+	// without a token (same as agnes), so the catalogue is seeded curated.
+	"sumopod": {
+		BaseURL:    "https://ai.sumopod.com/v1/chat/completions",
+		AuthHeader: "Authorization",
+		AuthScheme: "bearer",
+	},
 	"groq": {
 		BaseURL:    "https://api.groq.com/openai/v1/chat/completions",
 		AuthHeader: "Authorization",
