@@ -249,6 +249,7 @@ var modelCapabilities = map[string]Capabilities{
 	// enable_thinking:false on any turn that asked for no reasoning — z.ai
 	// answers 400 code 1210 "Invalid API parameter". It looked intermittent
 	// because only some turns ask.
+
 	"glm-5.3-flash": {Vision: true, Reasoning: true, Tools: true, ThinkingFormat: "zai", ThinkingCanDisable: new(false)},
 	// claude-fable-5 (no -1 suffix) is adaptive-only like fable-5-1; upstream
 	// capabilities.js only matches it through *claude*fable* -> claude-budget,
@@ -266,8 +267,11 @@ var modelCapabilities = map[string]Capabilities{
 	// pattern and lost its vision and 1M window.
 	"deepseek-v4-1-flash":             {Vision: true, Reasoning: true, Tools: true, ThinkingFormat: "deepseek"},
 	"deepseek-flash":                  {Vision: true, Reasoning: true, Tools: true, ThinkingFormat: "deepseek"},
-	"muse-spark-1.2-contributor-free": {Vision: true, Reasoning: true, Tools: true, ThinkingFormat: "openai"},
-	"muse-spark-1.3-contributor-free": {Vision: true, Reasoning: true, Tools: true, ThinkingFormat: "openai"},
+
+	"muse-spark-1.2-contributor":      {Vision: true, Reasoning: true, Tools: true, ThinkingFormat: "openai", ThinkingCanDisable: new(false)},
+	"muse-spark-1.3-contributor":      {Vision: true, Reasoning: true, Tools: true, ThinkingFormat: "openai", ThinkingCanDisable: new(false)},
+	"muse-spark-1.2-contributor-free": {Vision: true, Reasoning: true, Tools: true, ThinkingFormat: "openai", ThinkingCanDisable: new(false)},
+	"muse-spark-1.3-contributor-free": {Vision: true, Reasoning: true, Tools: true, ThinkingFormat: "openai", ThinkingCanDisable: new(false)},
 	"vision-model":                    {Vision: true, Reasoning: true, Tools: true, ThinkingFormat: "qwen"},
 	"coder-model":                     {Reasoning: true, Tools: true, ThinkingFormat: "qwen"},
 	"kimi-k3":                         {Vision: true, VideoInput: true, Reasoning: true, Tools: true, ThinkingFormat: "kimi", ThinkingCanDisable: new(false)},
@@ -301,6 +305,7 @@ var devinCLIGPTCaps = Capabilities{
 	Vision: true, Reasoning: true, Search: true, Tools: true,
 	ThinkingFormat: "openai", ContextWindow: 200000, MaxOutput: 128000,
 }
+
 var providerCapabilities = map[string]map[string]Capabilities{
 	"nvidia": {
 		"minimaxai/minimax-m2.7":        {Reasoning: true, Tools: true, ThinkingFormat: "openai", ThinkingCanDisable: new(false)},
