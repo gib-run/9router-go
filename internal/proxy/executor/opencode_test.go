@@ -42,14 +42,17 @@ func TestForwardOpencode(t *testing.T) {
 		if r.Header.Get("x-opencode-client") != "cli" {
 			t.Errorf("expected cli client header, got %s", r.Header.Get("x-opencode-client"))
 		}
-		if len(r.Header.Get("x-opencode-project")) != 40 {
-			t.Errorf("expected 40-char hex x-opencode-project, got %s", r.Header.Get("x-opencode-project"))
+		if r.Header.Get("x-opencode-project") != "global" {
+			t.Errorf("expected global x-opencode-project, got %s", r.Header.Get("x-opencode-project"))
 		}
-		if !strings.HasPrefix(r.Header.Get("x-opencode-session"), "ses_") {
-			t.Errorf("expected ses_ prefix on x-opencode-session, got %s", r.Header.Get("x-opencode-session"))
+		ses := r.Header.Get("x-opencode-session")
+		if !strings.HasPrefix(ses, "ses_") {
+			t.Errorf("expected ses_ prefix on x-opencode-session, got %s", ses)
 		}
-		if !strings.HasPrefix(r.Header.Get("x-opencode-request"), "msg_") {
-			t.Errorf("expected msg_ prefix on x-opencode-request, got %s", r.Header.Get("x-opencode-request"))
+		for _, h := range []string{"x-opencode-session-id", "x-session-affinity", "x-session-id"} {
+			if r.Header.Get(h) != ses {
+				t.Errorf("expected %s to equal session %s, got %s", h, ses, r.Header.Get(h))
+			}
 		}
 		if r.Header.Get("User-Agent") != proxy.DefaultOpenCodeUA {
 			t.Errorf("expected User-Agent %s, got %s", proxy.DefaultOpenCodeUA, r.Header.Get("User-Agent"))
@@ -125,8 +128,8 @@ func TestForwardOpencode_MuseSpark_EdgeRelay(t *testing.T) {
 	if gotTarget != "https://opencode.ai" {
 		t.Errorf("expected x-relay-target 'https://opencode.ai', got %q", gotTarget)
 	}
-	if gotPath != "/zen/v1/responses" {
-		t.Errorf("expected x-relay-path '/zen/v1/responses', got %q", gotPath)
+	if gotPath != "/inference/v1/responses" {
+		t.Errorf("expected x-relay-path '/inference/v1/responses', got %q", gotPath)
 	}
 }
 
@@ -260,6 +263,56 @@ func TestForwardOpencode_MuseSpark_OCPrefix(t *testing.T) {
 	}
 	if rec.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d", rec.Code)
+	}
+}
+
+func TestForwardOpencode_InferenceResponsesURL(t *testing.T) {
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(responsesEventStream("ok")))
+	}))
+	defer srv.Close()
+
+	cfg := &providers.ProviderConfig{BaseURL: srv.URL + "/inference/v1/chat/completions"}
+	rec := httptest.NewRecorder()
+	req := &Request{
+		Client: srv.Client(), Config: cfg, APIKey: "",
+		Body:     []byte(`{"model":"muse-spark-1.3-contributor-free","messages":[{"role":"user","content":"hi"}]}`),
+		IsStream: false, TranslateResp: false,
+	}
+	if err := ForwardOpencode(rec, req); err != nil {
+		t.Fatalf("ForwardOpencode failed: %v", err)
+	}
+	if gotPath != "/inference/v1/responses" {
+		t.Errorf("expected path '/inference/v1/responses', got %q", gotPath)
+	}
+}
+
+func TestForwardOpencode_UpgradesZenBaseURLToInference(t *testing.T) {
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"pong\"}}]}\n\ndata: [DONE]\n\n"))
+	}))
+	defer srv.Close()
+
+	cfg := &providers.ProviderConfig{BaseURL: srv.URL + "/zen/v1/chat/completions"}
+	rec := httptest.NewRecorder()
+	req := &Request{
+		Client: srv.Client(), Config: cfg, APIKey: "",
+		Body:     []byte(`{"model":"big-pickle","messages":[{"role":"user","content":"ping"}]}`),
+		IsStream: false, TranslateResp: false,
+	}
+	if err := ForwardOpencode(rec, req); err != nil {
+		t.Fatalf("ForwardOpencode failed: %v", err)
+	}
+	if gotPath != "/inference/v1/chat/completions" {
+		t.Errorf("expected path '/inference/v1/chat/completions', got %q", gotPath)
 	}
 }
 

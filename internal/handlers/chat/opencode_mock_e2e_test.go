@@ -10,6 +10,7 @@ import (
 
 	"9router/proxy/internal/db"
 	"9router/proxy/internal/providers"
+	"9router/proxy/internal/translator"
 )
 
 // TestE2E_Opencode_MuseSpark_Mock_NonStream_ToolCall verifies deterministic mock E2E for
@@ -32,8 +33,8 @@ func TestE2E_Opencode_MuseSpark_Mock_NonStream_ToolCall(t *testing.T) {
 		if !strings.HasSuffix(r.URL.Path, "/responses") {
 			t.Errorf("expected /responses path, got %s", r.URL.Path)
 		}
-		if r.Header.Get("x-opencode-client") != "desktop" {
-			t.Errorf("expected x-opencode-client desktop, got %q", r.Header.Get("x-opencode-client"))
+		if r.Header.Get("x-opencode-client") != "cli" {
+			t.Errorf("expected x-opencode-client cli, got %q", r.Header.Get("x-opencode-client"))
 		}
 		buf := new(bytes.Buffer)
 		buf.ReadFrom(r.Body)
@@ -349,8 +350,8 @@ func TestE2E_Opencode_SpaceBunny_ChatCompletions_Shape(t *testing.T) {
 		}
 		// Tools must have .function wrapper (Chat Completions format)
 		tools, ok := parsed["tools"].([]any)
-		if !ok || len(tools) != 4 {
-			t.Fatalf("expected 4 fingerprint tools, got %v", tools)
+		if !ok || len(tools) != len(translator.OpenCodeFingerprintTools) {
+			t.Fatalf("expected %d fingerprint tools, got %v", len(translator.OpenCodeFingerprintTools), tools)
 		}
 		for _, tool := range tools {
 			tm, ok := tool.(map[string]any)

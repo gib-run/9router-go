@@ -32,6 +32,14 @@ const (
 	zenResponsesPath = "/responses"
 )
 
+func isOpenCodeFreeModel(model string) bool {
+	clean := strings.TrimPrefix(model, "oc/")
+	clean = strings.TrimPrefix(clean, "ocz/")
+	clean = strings.TrimPrefix(clean, "opencode/")
+	clean = strings.TrimPrefix(clean, "opencode-zen/")
+	return strings.HasSuffix(clean, "-free") || clean == "big-pickle"
+}
+
 // zenBaseURL resolves the /zen/v1 prefix of the request's base URL: the registry
 // default, a connection override, or a relay host with the path carried in
 // x-relay-path.
@@ -44,6 +52,7 @@ func zenBaseURL(cfg *providers.ProviderConfig) string {
 	}
 	base := strings.TrimRight(cfg.BaseURL, "/")
 	base = strings.TrimSuffix(base, "/chat/completions")
+	base = strings.TrimSuffix(base, "/responses")
 	return strings.TrimSuffix(base, "/messages")
 }
 
@@ -174,8 +183,7 @@ func stripOpenCodePrefix(model string, prefixes ...string) string {
 // the relay answers 400 "Missing x-relay-target header" without them.
 func zenHeaders(cfg *providers.ProviderConfig, session string, stream bool) map[string]string {
 	headers := proxy.BuildOpenCodeHeaders(nil, session, stream)
-	// Upstream sends the desktop client id; BuildOpenCodeHeaders defaults to cli.
-	headers["x-opencode-client"] = "desktop"
+	headers["x-opencode-client"] = "cli"
 	for k, v := range cfg.StaticHeaders {
 		switch strings.ToLower(k) {
 		case "x-relay-target", "x-relay-path", "x-opencode-project":
@@ -237,7 +245,11 @@ func forwardZenChat(w http.ResponseWriter, req *Request, cleanModel, sourceForma
 	body = withJSONFields(body, map[string]any{"stream": true, "model": cleanModel})
 
 	cfg := *req.Config
-	cfg.BaseURL = zenBaseURL(&cfg) + "/chat/completions"
+	if isOpenCodeFreeModel(cleanModel) {
+		cfg.BaseURL = "https://opencode.ai/inference/v1/chat/completions"
+	} else {
+		cfg.BaseURL = zenBaseURL(&cfg) + "/chat/completions"
+	}
 	cfg.StaticHeaders = zenHeaders(&cfg, req.SessionID, true)
 
 	resp, err := proxy.ForwardOpenAI(reqCtx(req), req.Client, &cfg, req.APIKey, body, true)
@@ -294,8 +306,14 @@ func forwardZenResponses(w http.ResponseWriter, req *Request, cleanModel, source
 		// The relay stamps the destination in its headers, so the lane
 		// decision belongs in x-relay-path, not in the URL we dial.
 		cfg.StaticHeaders = copyHeaders(cfg.StaticHeaders)
-		cfg.StaticHeaders["x-relay-path"] = zenRelayPath(req.Config, zenResponsesPath)
+		if isOpenCodeFreeModel(cleanModel) {
+			cfg.StaticHeaders["x-relay-path"] = "/inference/v1/responses"
+		} else {
+			cfg.StaticHeaders["x-relay-path"] = zenRelayPath(req.Config, zenResponsesPath)
+		}
 		cfg.BaseURL = strings.TrimRight(cfg.BaseURL, "/") + zenResponsesPath
+	} else if isOpenCodeFreeModel(cleanModel) {
+		cfg.BaseURL = "https://opencode.ai/inference/v1/responses"
 	} else {
 		cfg.BaseURL = zenBaseURL(&cfg) + zenResponsesPath
 	}

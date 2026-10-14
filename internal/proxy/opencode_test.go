@@ -14,17 +14,20 @@ func TestBuildOpenCodeHeaders(t *testing.T) {
 	if headers["x-opencode-client"] != "cli" {
 		t.Errorf("expected x-opencode-client cli, got %s", headers["x-opencode-client"])
 	}
-	if len(headers["x-opencode-project"]) != 40 {
-		t.Errorf("expected 40-char hex x-opencode-project, got %s", headers["x-opencode-project"])
+	if headers["x-opencode-project"] != "global" {
+		t.Errorf("expected x-opencode-project global, got %s", headers["x-opencode-project"])
 	}
-	if !proxy.OpenCodeSessionRegex.MatchString(headers["x-opencode-session"]) {
-		t.Errorf("expected canonical x-opencode-session matching regex, got %s", headers["x-opencode-session"])
+	session := headers["x-opencode-session"]
+	if !proxy.OpenCodeSessionRegex.MatchString(session) {
+		t.Errorf("expected canonical x-opencode-session matching regex, got %s", session)
 	}
-	if len(headers["x-opencode-session"]) != 30 {
-		t.Errorf("expected session length 30, got %d (%s)", len(headers["x-opencode-session"]), headers["x-opencode-session"])
+	if len(session) != 30 {
+		t.Errorf("expected session length 30, got %d (%s)", len(session), session)
 	}
-	if !proxy.OpenCodeRequestRegex.MatchString(headers["x-opencode-request"]) {
-		t.Errorf("expected canonical x-opencode-request matching regex, got %s", headers["x-opencode-request"])
+	for _, h := range []string{"x-opencode-session-id", "x-session-affinity", "x-session-id"} {
+		if headers[h] != session {
+			t.Errorf("expected %s to equal session %s, got %s", h, session, headers[h])
+		}
 	}
 	if headers["Accept"] != "text/event-stream" {
 		t.Errorf("expected Accept text/event-stream, got %s", headers["Accept"])
@@ -34,6 +37,12 @@ func TestBuildOpenCodeHeaders(t *testing.T) {
 	headersNonStream := proxy.BuildOpenCodeHeaders(nil, "", false)
 	if headersNonStream["Accept"] != "*/*" {
 		t.Errorf("expected Accept */*, got %s", headersNonStream["Accept"])
+	}
+
+	// Custom non-global project override
+	custom := proxy.BuildOpenCodeHeaders(map[string]string{"x-opencode-project": "proj-xyz"}, "ses-1", true)
+	if custom["x-opencode-project"] != "proj-xyz" {
+		t.Errorf("expected custom x-opencode-project proj-xyz, got %s", custom["x-opencode-project"])
 	}
 }
 
@@ -73,6 +82,8 @@ func TestHasValidOpenCodeVersion(t *testing.T) {
 		{"opencode/1.17.0", true},
 		{"opencode/1.18.31", true},
 		{"opencode/2.0.0", true},
+		{"opencode/latest/2.0.29/cli", true},
+		{"opencode/latest/test", true},
 		{"Claude-Code/1.0", false},
 		{"curl/8.7.1", false},
 	}

@@ -26,14 +26,15 @@ func toolNames(t *testing.T, body []byte) []string {
 }
 
 func TestConcealFingerprintToolsNoDuplicates(t *testing.T) {
-	// The Claude Code CLI case: capitalised quartet members.
+	// The Claude Code CLI case: capitalised fingerprint members.
 	body := []byte(`{"model":"muse-spark-1.3-contributor-free","tools":[
 		{"type":"function","name":"Task"},
 		{"type":"function","name":"Bash"},
 		{"type":"function","name":"Glob"},
 		{"type":"function","name":"Grep"},
 		{"type":"function","name":"Read"},
-		{"type":"function","name":"Edit"}
+		{"type":"function","name":"Edit"},
+		{"type":"function","name":"CustomTool"}
 	]}`)
 
 	out, nameMap := ConcealFingerprintTools(body)
@@ -48,11 +49,17 @@ func TestConcealFingerprintToolsNoDuplicates(t *testing.T) {
 			t.Errorf("tool name %q appears %d times (duplicates trigger HTTP 500 upstream)", n, c)
 		}
 	}
-	if len(nameMap) != 4 {
-		t.Errorf("expected 4 concealed names, got %d", len(nameMap))
+	if len(nameMap) != 6 {
+		t.Errorf("expected 6 concealed names, got %d", len(nameMap))
 	}
 	if nameMap["bash"] != "Bash" {
 		t.Errorf("map bash -> %q, want \"Bash\"", nameMap["bash"])
+	}
+	if nameMap["task"] != "Task" {
+		t.Errorf("map task -> %q, want \"Task\"", nameMap["task"])
+	}
+	if nameMap["edit"] != "Edit" {
+		t.Errorf("map edit -> %q, want \"Edit\"", nameMap["edit"])
 	}
 	hasLower := false
 	for _, n := range names {
@@ -66,10 +73,10 @@ func TestConcealFingerprintToolsNoDuplicates(t *testing.T) {
 	if !hasLower {
 		t.Error("lowercase quartet missing — upstream will reject with 403")
 	}
-	// Tools outside the quartet must be left alone.
+	// Tools outside the fingerprint list must be left alone.
 	joined := strings.Join(names, ",")
-	if !strings.Contains(joined, "Task") || !strings.Contains(joined, "Edit") {
-		t.Errorf("non-quartet tools were modified: %v", names)
+	if !strings.Contains(joined, "CustomTool") {
+		t.Errorf("non-fingerprint tool was dropped: %v", names)
 	}
 }
 
@@ -77,18 +84,18 @@ func TestConcealFingerprintToolsDropsPlainDuplicates(t *testing.T) {
 	body := []byte(`{"tools":[{"name":"Bash"},{"name":"bash"},{"name":"Read"},{"name":"read"}]}`)
 	out, _ := ConcealFingerprintTools(body)
 	names := toolNames(t, out)
-	if len(names) != 4 {
-		t.Errorf("want 4 unique tools (bash,read plus injected glob,grep), got %d: %v", len(names), names)
+	if len(names) != len(OpenCodeFingerprintTools) {
+		t.Errorf("want %d unique tools, got %d: %v", len(OpenCodeFingerprintTools), len(names), names)
 	}
 }
 
 func TestConcealFingerprintToolsInjectsWhenNoTools(t *testing.T) {
-	// A tool-less request is also rejected upstream (403), so the quartet is added.
+	// A tool-less request is also rejected upstream (403), so the tools are added.
 	body := []byte(`{"model":"muse-spark-1.3-contributor-free","input":[]}`)
 	out, _ := ConcealFingerprintTools(body)
 	names := toolNames(t, out)
-	if len(names) != 4 {
-		t.Fatalf("want 4 injected tools, got %d: %v", len(names), names)
+	if len(names) != len(OpenCodeFingerprintTools) {
+		t.Fatalf("want %d injected tools, got %d: %v", len(OpenCodeFingerprintTools), len(names), names)
 	}
 	for _, n := range names {
 		if n != strings.ToLower(n) {
@@ -143,16 +150,17 @@ func TestConcealFingerprintToolsRetargetsToolChoice(t *testing.T) {
 }
 
 func TestConcealFingerprintToolsAlreadyCanonical(t *testing.T) {
-	// A body that already carries the lowercase quartet needs no rename and no
+	// A body that already carries all lowercase fingerprint tools needs no rename and no
 	// extra declarations.
-	body := []byte(`{"tools":[{"name":"terminal"},{"name":"bash"},{"name":"glob"},{"name":"grep"},{"name":"read"}]}`)
+	toolsJSON := `{"tools":[{"name":"terminal"},{"name":"bash"},{"name":"edit"},{"name":"glob"},{"name":"grep"},{"name":"read"},{"name":"shell"},{"name":"skill"},{"name":"task"},{"name":"todowrite"},{"name":"webfetch"},{"name":"websearch"},{"name":"write"}]}`
+	body := []byte(toolsJSON)
 	out, nameMap := ConcealFingerprintTools(body)
 	if len(nameMap) != 0 {
 		t.Errorf("map should be empty, got %v", nameMap)
 	}
 	names := toolNames(t, out)
-	if len(names) != 5 {
-		t.Errorf("no tools should be added, want 5, got %d: %v", len(names), names)
+	if len(names) != 13 {
+		t.Errorf("no tools should be added, want 13, got %d: %v", len(names), names)
 	}
 	seen := map[string]int{}
 	for _, n := range names {
@@ -307,8 +315,10 @@ func TestRestoreToolNamesInPayloadPicksShape(t *testing.T) {
 func TestFingerprintToolKey(t *testing.T) {
 	cases := map[string]string{
 		"Bash": "bash", " bash ": "bash", "GLOB": "glob",
-		"Read": "read", "Grep": "grep",
-		"Edit": "", "terminal": "", "": "",
+		"Read": "read", "Grep": "grep", "Edit": "edit",
+		"Shell": "shell", " SHELL ": "shell",
+		"SKILL": "skill", "Task": "task", "Write": "write",
+		"terminal": "", "": "",
 	}
 	for in, want := range cases {
 		if got := FingerprintToolKey(in); got != want {
@@ -336,8 +346,8 @@ func TestConcealFingerprintToolsChatShapeWhenNoTools(t *testing.T) {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	tools, ok := m["tools"].([]any)
-	if !ok || len(tools) != 4 {
-		t.Fatalf("want 4 tools, got %v", tools)
+	if !ok || len(tools) != len(OpenCodeFingerprintTools) {
+		t.Fatalf("want %d tools, got %v", len(OpenCodeFingerprintTools), tools)
 	}
 	for _, tool := range tools {
 		tm, ok := tool.(map[string]any)
@@ -354,5 +364,66 @@ func TestConcealFingerprintToolsChatShapeWhenNoTools(t *testing.T) {
 	}
 	if m["tool_choice"] != "none" {
 		t.Errorf("expected tool_choice 'none' for tool-less chat request, got %v", m["tool_choice"])
+	}
+}
+
+func TestFingerprintToolParameters(t *testing.T) {
+	tests := []struct {
+		name         string
+		expectedProp string
+	}{
+		{"bash", "command"},
+		{"shell", "command"},
+		{"read", "filePath"},
+		{"glob", "pattern"},
+		{"grep", "pattern"},
+		{"edit", "query"},
+		{"write", "query"},
+		{"custom", "query"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			params := fingerprintToolParameters(tt.name)
+			if params["type"] != "object" {
+				t.Fatalf("expected type object, got %v", params["type"])
+			}
+			props, ok := params["properties"].(map[string]any)
+			if !ok {
+				t.Fatalf("expected properties map, got %v", params["properties"])
+			}
+			if len(props) == 0 {
+				t.Fatalf("properties must not be empty for %s", tt.name)
+			}
+			if _, exists := props[tt.expectedProp]; !exists {
+				t.Errorf("expected property %q in %v", tt.expectedProp, props)
+			}
+		})
+	}
+}
+
+func TestConcealFingerprintToolsInjectedParametersNonEmpty(t *testing.T) {
+	body := []byte(`{"model":"space-bunny-free","messages":[{"role":"user","content":"hi"}]}`)
+	out, _ := ConcealFingerprintTools(body)
+	var m map[string]any
+	if err := json.Unmarshal(out, &m); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	tools, ok := m["tools"].([]any)
+	if !ok {
+		t.Fatalf("expected tools array")
+	}
+	for _, tool := range tools {
+		tm := tool.(map[string]any)
+		fn := tm["function"].(map[string]any)
+		name := fn["name"].(string)
+		params, ok := fn["parameters"].(map[string]any)
+		if !ok {
+			t.Fatalf("tool %s missing parameters", name)
+		}
+		props, ok := params["properties"].(map[string]any)
+		if !ok || len(props) == 0 {
+			t.Errorf("tool %s has empty properties: %v", name, params)
+		}
 	}
 }

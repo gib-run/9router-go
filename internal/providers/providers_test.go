@@ -54,8 +54,14 @@ func TestKnownProviders_NoAuthOverridesScheme(t *testing.T) {
 
 func TestKnownProviders_StaticHeaders(t *testing.T) {
 	cfg := KnownProviders["opencode"]
-	if cfg.StaticHeaders["x-opencode-client"] != "desktop" {
-		t.Errorf("opencode expected static header x-opencode-client=desktop, got %q", cfg.StaticHeaders["x-opencode-client"])
+	if cfg.StaticHeaders["x-opencode-client"] != "cli" {
+		t.Errorf("opencode expected static header x-opencode-client=cli, got %q", cfg.StaticHeaders["x-opencode-client"])
+	}
+	if cfg.StaticHeaders["User-Agent"] != "opencode/latest/2.0.29/cli" {
+		t.Errorf("opencode expected static header User-Agent=opencode/latest/2.0.29/cli, got %q", cfg.StaticHeaders["User-Agent"])
+	}
+	if cfg.BaseURL != "https://opencode.ai/inference/v1/chat/completions" {
+		t.Errorf("opencode expected BaseURL https://opencode.ai/inference/v1/chat/completions, got %q", cfg.BaseURL)
 	}
 }
 

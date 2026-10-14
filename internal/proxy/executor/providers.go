@@ -586,7 +586,7 @@ func ForwardOpencode(w http.ResponseWriter, req *Request) error {
 	}
 
 	if isOpencodeResponsesModel(cleanModel) {
-		// Route through Responses API format: https://opencode.ai/zen/v1/responses
+		// Route through Responses API format: https://opencode.ai/inference/v1/responses
 		transformedBody, _, err := buildResponsesBody(req.Body)
 		if err != nil {
 			return fmt.Errorf("transform body for muse-spark: %w", err)
@@ -613,13 +613,16 @@ func ForwardOpencode(w http.ResponseWriter, req *Request) error {
 			for k, v := range req.Config.StaticHeaders {
 				cfg.StaticHeaders[k] = v
 			}
-			cfg.StaticHeaders["x-relay-path"] = "/zen/v1/responses"
+			cfg.StaticHeaders["x-relay-path"] = "/inference/v1/responses"
 		} else if !strings.HasSuffix(cfg.BaseURL, "/responses") {
 			baseURL := strings.TrimRight(cfg.BaseURL, "/")
 			if strings.HasSuffix(baseURL, "/chat/completions") {
 				baseURL = strings.TrimSuffix(baseURL, "/chat/completions")
 			}
+			baseURL = strings.Replace(baseURL, "/zen/v1", "/inference/v1", 1)
 			cfg.BaseURL = baseURL + "/responses"
+		} else {
+			cfg.BaseURL = strings.Replace(cfg.BaseURL, "/zen/v1/responses", "/inference/v1/responses", 1)
 		}
 		cfg.StaticHeaders = proxy.BuildOpenCodeHeaders(cfg.StaticHeaders, req.SessionID, req.IsStream)
 		ctx := req.Ctx
@@ -668,6 +671,7 @@ func ForwardOpencode(w http.ResponseWriter, req *Request) error {
 	}
 
 	cfg := *req.Config
+	cfg.BaseURL = strings.Replace(cfg.BaseURL, "/zen/v1", "/inference/v1", 1)
 	cfg.StaticHeaders = proxy.BuildOpenCodeHeaders(cfg.StaticHeaders, req.SessionID, true)
 
 	ctx := req.Ctx

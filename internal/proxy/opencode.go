@@ -13,8 +13,7 @@ import (
 
 const (
 	// DefaultOpenCodeUA is the official OpenCode fingerprint User-Agent.
-	// Upstream requires version >= 1.17.0 (PR #4105, PR #4111).
-	DefaultOpenCodeUA = "opencode/1.18.31 ai-sdk/provider-utils/4.0.46 runtime/bun/1.3.14"
+	DefaultOpenCodeUA = "opencode/latest/2.0.29/cli"
 
 	base62Chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 )
@@ -81,7 +80,8 @@ func GenerateOpenCodeProjectID() string {
 	return hex.EncodeToString(b)
 }
 
-// TranslateOpenCodeSessionID deterministically maps foreign sessions to valid 30-char canonical IDs.
+// TranslateOpenCodeSessionID deterministically maps foreign sessions to valid 30-char canonical IDs
+// with a fresh descending timestamp prefix to pass freshness checks.
 func TranslateOpenCodeSessionID(sessionID, clientTool string) string {
 	trimmed := strings.TrimSpace(sessionID)
 	if OpenCodeSessionRegex.MatchString(trimmed) {
@@ -91,13 +91,21 @@ func TranslateOpenCodeSessionID(sessionID, clientTool string) string {
 	if tool == "" {
 		tool = "generic"
 	}
+	now := time.Now().UnixMilli()
+	current := uint64(now)*0x1000 + 1
+	value := ^current
+	var timeBytes [6]byte
+	for i := range 6 {
+		timeBytes[i] = byte((value >> (40 - 8*uint64(i))) & 0xff)
+	}
+	timeHex := hex.EncodeToString(timeBytes[:])
+
 	h := sha256.New()
 	h.Write([]byte("opencode\x00" + tool + "\x00" + trimmed))
 	digest := h.Sum(nil)
-	timeHex := hex.EncodeToString(digest[:6])
 	var sb strings.Builder
 	sb.Grow(14)
-	for i := 6; i < 20; i++ {
+	for i := range 14 {
 		sb.WriteByte(base62Chars[int(digest[i])%62])
 	}
 	return "ses_" + timeHex + sb.String()
@@ -105,8 +113,11 @@ func TranslateOpenCodeSessionID(sessionID, clientTool string) string {
 
 var opencodeUARegex = regexp.MustCompile(`(?i)opencode/(\d+)\.(\d+)(?:\.(\d+))?`)
 
-// HasValidOpenCodeVersion checks if a User-Agent is opencode >= 1.17.0.
+// HasValidOpenCodeVersion checks if a User-Agent is opencode >= 1.17.0 or opencode/latest/.
 func HasValidOpenCodeVersion(ua string) bool {
+	if strings.Contains(ua, "opencode/latest/") {
+		return true
+	}
 	matches := opencodeUARegex.FindStringSubmatch(ua)
 	if len(matches) < 3 {
 		return false
@@ -132,14 +143,15 @@ func BuildOpenCodeHeaders(rawHeaders map[string]string, sessionID string, isStre
 	}
 
 	res := map[string]string{
-		"Content-Type":       "application/json",
-		"Authorization":      "Bearer public",
-		"x-api-key":          "public",
-		"User-Agent":         DefaultOpenCodeUA,
-		"x-opencode-client":  "cli",
-		"x-opencode-session": session,
-		"x-opencode-request": GenerateOpenCodeRequestID(),
-		"x-opencode-project": GenerateOpenCodeProjectID(),
+		"Content-Type":          "application/json",
+		"Authorization":         "Bearer public",
+		"User-Agent":            DefaultOpenCodeUA,
+		"x-opencode-client":     "cli",
+		"x-opencode-session":    session,
+		"x-opencode-session-id": session,
+		"x-session-affinity":    session,
+		"x-session-id":          session,
+		"x-opencode-project":    "global",
 	}
 	if isStream {
 		res["Accept"] = "text/event-stream"
@@ -153,16 +165,20 @@ func BuildOpenCodeHeaders(rawHeaders map[string]string, sessionID string, isStre
 	}
 	for k, v := range rawHeaders {
 		lk := strings.ToLower(k)
-		if lk == "user-agent" && HasValidOpenCodeVersion(v) {
+		if lk == "user-agent" && HasValidOpenCodeVersion(v) && !strings.Contains(v, "1.18.") {
 			res["User-Agent"] = v
 		}
-		if lk == "x-opencode-session" {
+		if lk == "x-opencode-session" || lk == "x-opencode-session-id" || lk == "x-session-affinity" || lk == "x-session-id" {
 			trimmed := strings.TrimSpace(v)
 			if OpenCodeSessionRegex.MatchString(trimmed) {
-				res["x-opencode-session"] = trimmed
+				session = trimmed
 			} else if trimmed != "" {
-				res["x-opencode-session"] = TranslateOpenCodeSessionID(trimmed, "")
+				session = TranslateOpenCodeSessionID(trimmed, "")
 			}
+			res["x-opencode-session"] = session
+			res["x-opencode-session-id"] = session
+			res["x-session-affinity"] = session
+			res["x-session-id"] = session
 		}
 		if lk == "x-opencode-client" || lk == "x-opencode-request" {
 			res[k] = v

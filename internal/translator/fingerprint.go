@@ -33,7 +33,7 @@ import (
 // Ported from the equivalent fix in decolua/9router (opencodeFingerprint.js).
 
 // OpenCodeFingerprintTools holds the canonical names the upstream gate looks for.
-var OpenCodeFingerprintTools = []string{"bash", "glob", "grep", "read"}
+var OpenCodeFingerprintTools = []string{"bash", "edit", "glob", "grep", "read", "shell", "skill", "task", "todowrite", "webfetch", "websearch", "write"}
 
 // FingerprintToolKey returns the canonical lowercase name when name is a quartet
 // member, or "" when it is not.
@@ -75,6 +75,36 @@ func setToolName(tool any, name string) {
 	}
 	if fn, ok := m["function"].(map[string]any); ok {
 		fn["name"] = name
+	}
+}
+
+func fingerprintToolParameters(name string) map[string]any {
+	var props map[string]any
+	switch strings.ToLower(name) {
+	case "bash", "shell":
+		props = map[string]any{
+			"command": map[string]any{"type": "string", "description": "Command to run"},
+		}
+	case "read":
+		props = map[string]any{
+			"filePath": map[string]any{"type": "string", "description": "Path to file"},
+		}
+	case "glob":
+		props = map[string]any{
+			"pattern": map[string]any{"type": "string", "description": "Glob pattern"},
+		}
+	case "grep":
+		props = map[string]any{
+			"pattern": map[string]any{"type": "string", "description": "Search pattern"},
+		}
+	default:
+		props = map[string]any{
+			"query": map[string]any{"type": "string"},
+		}
+	}
+	return map[string]any{
+		"type":       "object",
+		"properties": props,
 	}
 }
 
@@ -157,15 +187,16 @@ func ConcealFingerprintTools(body []byte) ([]byte, map[string]string) {
 		entry := map[string]any{
 			"type": "function",
 		}
+		params := fingerprintToolParameters(name)
 		if flat {
 			entry["name"] = name
 			entry["description"] = "This tool is currently unavailable and must not be used."
-			entry["parameters"] = map[string]any{"type": "object", "properties": map[string]any{}}
+			entry["parameters"] = params
 		} else {
 			entry["function"] = map[string]any{
 				"name":        name,
 				"description": "This tool is currently unavailable and must not be used.",
-				"parameters":  map[string]any{"type": "object", "properties": map[string]any{}},
+				"parameters":  params,
 			}
 		}
 		kept = append(kept, entry)
