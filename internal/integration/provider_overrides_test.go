@@ -52,12 +52,17 @@ func TestProviderHeaderOverrideBeatsRegistryHeader(t *testing.T) {
 	upstream := env.NewUpstream(t, chatCompletionResponder())
 	env.AddConnection(t, "conn-opencode", "opencode", "OpenCode", upstream, "sk-upstream")
 
-	// opencode ships x-opencode-client: desktop from the registry.
-	if providers.KnownProviders["opencode"].StaticHeaders["x-opencode-client"] != "desktop" {
-		t.Fatalf("fixture changed: opencode no longer sends x-opencode-client=desktop")
+	// opencode ships x-opencode-client from the registry.
+	regClient := providers.KnownProviders["opencode"].StaticHeaders["x-opencode-client"]
+	if regClient == "" {
+		t.Fatalf("fixture changed: opencode has no static x-opencode-client")
+	}
+	overrideClient := "desktop"
+	if regClient == "desktop" {
+		overrideClient = "cli"
 	}
 	if err := env.Repo.SetProviderOverride("opencode", &db.ProviderOverrides{
-		Headers: map[string]string{"x-opencode-client": "cli"},
+		Headers: map[string]string{"x-opencode-client": overrideClient},
 	}); err != nil {
 		t.Fatalf("store override: %v", err)
 	}
@@ -66,8 +71,8 @@ func TestProviderHeaderOverrideBeatsRegistryHeader(t *testing.T) {
 	if res.Status != http.StatusOK {
 		t.Fatalf("status = %d: %s", res.Status, truncate(res.Body))
 	}
-	if got := upstream.Last(t).Header.Get("x-opencode-client"); got != "cli" {
-		t.Errorf("upstream x-opencode-client = %q, want the override to win with %q", got, "cli")
+	if got := upstream.Last(t).Header.Get("x-opencode-client"); got != overrideClient {
+		t.Errorf("upstream x-opencode-client = %q, want the override to win with %q", got, overrideClient)
 	}
 }
 
