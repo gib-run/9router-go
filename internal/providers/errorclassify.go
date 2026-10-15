@@ -77,6 +77,43 @@ type ErrorClassification struct {
 	NewBackoffLevel int // only meaningful when the matched rule has Backoff=true
 }
 
+// ModelFitErrorPatterns are the upstream phrasings for "this request does not
+// fit this model": the prompt is longer than the model's context window, or
+// carries more tokens than the model accepts. They are matched case-insensitively
+// against the error text and are deliberately provider-agnostic, because every
+// provider words the same condition differently.
+var ModelFitErrorPatterns = []string{
+	"maximum context length",
+	"context_length_exceeded",
+	"exceed context limit",
+	"exceeds the maximum number of tokens",
+	"context window exceeded",
+	"prompt is too long",
+	"too many input tokens",
+}
+
+// IsModelFitError reports whether an upstream 4xx means the request is too big
+// for the model that received it. That is a routing fact, not an account fault:
+// every other account on this provider has the same context window, so the only
+// useful response is to try a model with a bigger one — never to cool the
+// connection down, which would hide a working account and hand the request to a
+// provider that may be no better.
+//
+// Only 4xx qualifies: a 5xx carrying the same wording is a server fault, and a
+// 429 is a quota limit regardless of the message.
+func IsModelFitError(statusCode int, errorText string) bool {
+	if statusCode < 400 || statusCode >= 500 {
+		return false
+	}
+	lower := strings.ToLower(errorText)
+	for _, p := range ModelFitErrorPatterns {
+		if strings.Contains(lower, p) {
+			return true
+		}
+	}
+	return false
+}
+
 // ClassifyError classifies an upstream error by matching text and status against ErrorRules.
 // Returns the cooldown duration and new backoff level.
 // Matches Next.js checkFallbackError() in open-sse/services/accountFallback.js.
