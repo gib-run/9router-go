@@ -57,6 +57,18 @@ func freebuffOrigin(baseURL string) string {
 	return "https://www.codebuff.com"
 }
 
+// applyRelayHeaders copies edge-relay routing (x-relay-target, x-relay-path) onto
+// a freebuff control-plane request. A relay connection rewrites BaseURL to the
+// relay host, so these calls need the same routing the chat request gets from
+// StaticHeaders. Other static headers stay off: freebuff sets its own CLI identity.
+func applyRelayHeaders(req *http.Request, headers map[string]string) {
+	for k, v := range headers {
+		if strings.HasPrefix(strings.ToLower(k), "x-relay-") {
+			req.Header.Set(k, v)
+		}
+	}
+}
+
 func ensureFreebuffMarker(body map[string]any) {
 	rawMsgs, ok := body["messages"].([]any)
 	if !ok || len(rawMsgs) == 0 {
@@ -115,7 +127,7 @@ func ensureFreebuffEndTurnTool(body map[string]any) {
 	body["tools"] = append(rawTools, endTurnTool)
 }
 
-func startFreebuffRun(ctx context.Context, client *http.Client, baseURL, token, model string) (string, error) {
+func startFreebuffRun(ctx context.Context, client *http.Client, baseURL, token, model string, headers map[string]string) (string, error) {
 	origin := freebuffOrigin(baseURL)
 	reqURL := origin + freebuffRunPath
 
@@ -136,6 +148,7 @@ func startFreebuffRun(ctx context.Context, client *http.Client, baseURL, token, 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("User-Agent", freebuffCLIUserAgent)
+	applyRelayHeaders(req, headers)
 
 	resp, err := DoFreebuffHTTP(ctx, client, req)
 	if err != nil {
@@ -161,7 +174,7 @@ func startFreebuffRun(ctx context.Context, client *http.Client, baseURL, token, 
 	return data.RunID, nil
 }
 
-func finishFreebuffRun(ctx context.Context, client *http.Client, baseURL, token, runID, status string) {
+func finishFreebuffRun(ctx context.Context, client *http.Client, baseURL, token, runID, status string, headers map[string]string) {
 	if runID == "" {
 		return
 	}
@@ -185,6 +198,7 @@ func finishFreebuffRun(ctx context.Context, client *http.Client, baseURL, token,
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("User-Agent", freebuffCLIUserAgent)
+	applyRelayHeaders(req, headers)
 
 	resp, err := DoFreebuffHTTP(finishCtx, client, req)
 	if err == nil {
@@ -223,7 +237,7 @@ func ForwardFreebuff(w http.ResponseWriter, req *Request) error {
 	sess, ok := getFreebuffSessionWithStore(store, token, model)
 	if !ok {
 		var err error
-		sess, err = requestFreebuffSessionWithStore(ctx, store, client, req.Config.BaseURL, token, model)
+		sess, err = requestFreebuffSessionWithStore(ctx, store, client, req.Config.BaseURL, token, model, req.Config.StaticHeaders)
 		if err != nil {
 			log.Warn("freebuff", "session request failed", "model", model, "error", err)
 			var ue *proxy.UpstreamError
@@ -239,14 +253,14 @@ func ForwardFreebuff(w http.ResponseWriter, req *Request) error {
 	}
 
 	// 2. Start Agent Run
-	runID, err := startFreebuffRun(ctx, client, req.Config.BaseURL, token, model)
+	runID, err := startFreebuffRun(ctx, client, req.Config.BaseURL, token, model, req.Config.StaticHeaders)
 	if err != nil {
 		log.Warn("freebuff", "run start failed", "model", model, "error", err)
 		return err
 	}
 	runStatus := "failed"
 	defer func() {
-		finishFreebuffRun(context.Background(), client, req.Config.BaseURL, token, runID, runStatus)
+		finishFreebuffRun(context.Background(), client, req.Config.BaseURL, token, runID, runStatus, req.Config.StaticHeaders)
 	}()
 	// 3. Transform body
 	delete(parsedBody, "reasoning_effort")
@@ -348,7 +362,7 @@ func ForwardFreebuff(w http.ResponseWriter, req *Request) error {
 			dropFreebuffLease(store, token, model, sess.InstanceID)
 		}
 		clearFreebuffSession(token, model)
-		newSess, sessErr := requestFreebuffSessionWithStore(ctx, store, client, req.Config.BaseURL, token, model)
+		newSess, sessErr := requestFreebuffSessionWithStore(ctx, store, client, req.Config.BaseURL, token, model, req.Config.StaticHeaders)
 		if sessErr == nil && newSess != nil {
 			sess = newSess
 			codebuffMeta["freebuff_instance_id"] = sess.InstanceID
