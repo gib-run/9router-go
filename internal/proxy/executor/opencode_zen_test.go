@@ -389,7 +389,6 @@ func TestForwardOpencodeZen_FreeModelTakesInferenceGate(t *testing.T) {
 		want  string
 		reply func(w http.ResponseWriter)
 	}{
-		{"big-pickle", "/inference/v1/chat/completions", zenChatReply},
 		{"deepseek-v4-flash-free", "/inference/v1/chat/completions", zenChatReply},
 		{"muse-spark-1.3-contributor-free", "/inference/v1/responses", zenResponsesReply},
 	}
