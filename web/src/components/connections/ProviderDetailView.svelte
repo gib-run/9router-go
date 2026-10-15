@@ -2310,9 +2310,12 @@
   // runs at most 2 at once; a lower ceiling than the registry sweep's 6.
   const COMPATIBLE_TEST_CONCURRENCY = 2
 
-  // Bounded pool: see COMPATIBLE_TEST_CONCURRENCY above.
+  // Bounded pool: see COMPATIBLE_TEST_CONCURRENCY above. Guarded the way
+  // runModelSweep is: a run that outlives its panel stops writing, because
+  // storageAlias may already belong to the next provider by then.
   async function handleTestAllCompatibleModels() {
     if (compatibleTestAllRunning) return
+    const pid = providerId
     const ids = compatibleRows.map((r) => r.id)
     if (ids.length === 0) return
     compatibleTestAllRunning = true
@@ -2322,13 +2325,13 @@
     try {
       let cursor = 0
       const workers = Array.from({ length: Math.min(COMPATIBLE_TEST_CONCURRENCY, ids.length) }, async () => {
-        while (cursor < ids.length) {
+        while (cursor < ids.length && pid === providerId) {
           await handleTestCompatibleModel(ids[cursor++])
         }
       })
       await Promise.allSettled(workers)
     } finally {
-      compatibleTestAllRunning = false
+      if (pid === providerId) compatibleTestAllRunning = false
     }
   }
 
@@ -2482,6 +2485,14 @@
     modelTestErrors = {}
     checkAllSummary = null
     activeModelTestError = null
+    // The compatible-model probes share this panel's lifetime too: without
+    // these, a provider switch shows the previous provider's verdicts and
+    // latencies against the new provider's model list.
+    compatibleTesting = {}
+    compatibleTestResults = {}
+    compatibleTestErrors = {}
+    compatibleTestLatency = {}
+    compatibleTestAllRunning = false
   })
 
   // Providers whose /models the backend can enumerate
