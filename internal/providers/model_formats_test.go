@@ -91,3 +91,41 @@ func TestGetModelFormats_KimiDeclaresResponsesLane(t *testing.T) {
 		})
 	}
 }
+
+func TestIsOpencodeFreeTierModel(t *testing.T) {
+	tests := []struct {
+		name     string
+		provider string
+		model    string
+		want     bool
+	}{
+		{"big-pickle on opencode", "opencode", "big-pickle", true},
+		{"big-pickle on opencode-zen", "opencode-zen", "big-pickle", true},
+		{"big-pickle on opencode-go", "opencode-go", "big-pickle", true},
+		{"big-pickle on antigravity", "antigravity", "big-pickle", true},
+		{"big-pickle on antigravity-zen", "antigravity-zen", "big-pickle", true},
+		{"big-pickle on antigravity-go", "antigravity-go", "big-pickle", true},
+		{"big-pickle on alias ocz", "ocz", "big-pickle", true},
+		{"big-pickle on unrelated provider", "openai", "big-pickle", false},
+		{"uncataloged free model on antigravity", "antigravity", "longcat-2.5-preview-free", true},
+		{"uncataloged free model on antigravity-zen", "antigravity-zen", "longcat-2.5-preview-free", true},
+		{"uncataloged free model on antigravity-go", "antigravity-go", "longcat-2.5-preview-free", true},
+		{"uncataloged free model on opencode", "opencode", "longcat-2.5-preview-free", true},
+		{"uncataloged free model on opencode-zen", "opencode-zen", "longcat-2.5-preview-free", true},
+		{"uncataloged free model on opencode-go", "opencode-go", "longcat-2.5-preview-free", true},
+		{"uncataloged free model on unrelated provider", "openai", "longcat-2.5-preview-free", false},
+		{"curated free model on opencode-zen", "opencode-zen", "deepseek-v4-flash-free", true},
+		{"curated free model on opencode-go", "opencode-go", "space-bunny-free", true},
+		{"non-free model on opencode", "opencode", "gpt-5", false},
+		{"non-free model on opencode-zen", "opencode-zen", "deepseek-v4-pro", false},
+		{"non-free model on antigravity", "antigravity", "claude-sonnet-4-6", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := IsOpencodeFreeTierModel(tt.provider, tt.model)
+			if got != tt.want {
+				t.Errorf("IsOpencodeFreeTierModel(%q, %q) = %v, want %v", tt.provider, tt.model, got, tt.want)
+			}
+		})
+	}
+}

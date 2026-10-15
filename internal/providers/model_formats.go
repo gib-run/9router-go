@@ -250,8 +250,6 @@ func openCodeFamilyFormatsFor(base string) *ModelFormats {
 // /zen/v1 requests) plus the upstream free-executor routing show these ids
 // answer behind the keyless /inference/v1 gate, so the keyed zen lane
 // forwards them there with public credentials instead of the user key.
-// big-pickle is deliberately absent: it has no live 403 evidence and the lane
-// table carries it as paid chat, so moving it could break working calls.
 var openCodeFreeTierModels = map[string]bool{
 	// opencode (free provider)
 	"muse-spark-1.2-contributor-free": true,
@@ -266,15 +264,36 @@ var openCodeFreeTierModels = map[string]bool{
 	"nemotron-3.5-lightning-free": true,
 	// opencode-go free tier on the paid lane
 	"space-bunny-free": true,
+	"big-pickle":       true,
 }
 
 // IsOpencodeFreeTierModel reports whether a bare model id is one of the
 // OpenCode free-tier ids, so executors can pick the /inference/v1 prefix.
-// The model must also be curated for the named provider; an id that only
-// exists on the free provider is not a zen free model and vice versa.
+// The model must also be curated for the named provider, but if provider is
+// one of the OpenCode / Antigravity providers and the model ends with "-free"
+// or is "big-pickle", it returns true so uncataloged/preview free models
+// (e.g. longcat-2.5-preview-free) are automatically treated as free tier.
 func IsOpencodeFreeTierModel(provider, baseModelID string) bool {
-	if !openCodeFreeTierModels[baseModelID] {
+	if !openCodeFreeTierModels[baseModelID] && !strings.HasSuffix(baseModelID, "-free") {
 		return false
+	}
+	switch provider {
+	case "antigravity", "antigravity-zen", "antigravity-go",
+		"opencode", "opencode-zen", "opencode-go",
+		"oc", "ocz", "ocg":
+		if strings.HasSuffix(baseModelID, "-free") || baseModelID == "big-pickle" {
+			return true
+		}
+	default:
+		if canon := ResolveAlias(provider); canon != provider {
+			switch canon {
+			case "antigravity", "antigravity-zen", "antigravity-go",
+				"opencode", "opencode-zen", "opencode-go":
+				if strings.HasSuffix(baseModelID, "-free") || baseModelID == "big-pickle" {
+					return true
+				}
+			}
+		}
 	}
 	models := ProviderModels[provider]
 	for _, m := range models {

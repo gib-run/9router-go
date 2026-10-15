@@ -326,16 +326,13 @@ func TestNormalizeZenResponsesBody_ReasoningShapes(t *testing.T) {
 	}
 }
 
-// Paid ids stay on the keyed /zen/v1 lane with the v1 identity — including
-// big-pickle, which has no live 403 evidence and the lane table carries as
-// paid chat, so it must not be swept into the inference gate.
+// Paid ids stay on the keyed /zen/v1 lane with the v1 identity.
 func TestForwardOpencodeZen_KeyedLaneStaysOnZenV1(t *testing.T) {
 	tests := []struct {
 		model string
 		want  string
 		reply func(w http.ResponseWriter)
 	}{
-		{"big-pickle", "/zen/v1/chat/completions", zenChatReply},
 		{"deepseek-v4-pro", "/zen/v1/chat/completions", zenChatReply},
 		{"grok-4.6", "/zen/v1/responses", zenResponsesReply},
 	}
@@ -392,6 +389,7 @@ func TestForwardOpencodeZen_FreeModelTakesInferenceGate(t *testing.T) {
 		want  string
 		reply func(w http.ResponseWriter)
 	}{
+		{"big-pickle", "/inference/v1/chat/completions", zenChatReply},
 		{"deepseek-v4-flash-free", "/inference/v1/chat/completions", zenChatReply},
 		{"muse-spark-1.3-contributor-free", "/inference/v1/responses", zenResponsesReply},
 	}
