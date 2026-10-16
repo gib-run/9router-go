@@ -7,12 +7,80 @@ import (
 	"9router/proxy/internal/log"
 )
 
+// convertConstToEnum visits schema nodes using forEachSubschema and converts
+// scalar const values (string, number, boolean) into enum = [const] and deletes const.
+// It also ensures that a property named "const" (a property inside a "properties" map)
+// is NOT treated as a schema node's `const` keyword.
+func convertConstToEnum(obj map[string]any) {
+	if obj == nil {
+		return
+	}
+	// If this object itself has a "const" keyword and is a schema node, convert it.
+	if constVal, hasConst := obj["const"]; hasConst {
+		// Verify constVal is a scalar (string, float64/int, bool)
+		switch constVal.(type) {
+		case string, float64, int, int64, bool:
+			if _, hasEnum := obj["enum"]; !hasEnum {
+				obj["enum"] = []any{constVal}
+			}
+			delete(obj, "const")
+		}
+	}
+
+	// Recurse using forEachSubschema to visit child subschemas (properties, items, anyOf, etc.)
+	forEachSubschema(obj, convertConstToEnum)
+}
+
+// literal annotation/enum data (upstream #4831).
+func forEachSubschema(obj map[string]any, visit func(map[string]any)) {
+	if obj == nil {
+		return
+	}
+	// Values inside schema maps (e.g. properties, $defs).
+	for _, key := range []string{"properties", "patternProperties", "$defs", "definitions", "dependentSchemas"} {
+		if m, ok := obj[key].(map[string]any); ok {
+			for _, schema := range m {
+				if sub, ok := schema.(map[string]any); ok {
+					visit(sub)
+				}
+			}
+		}
+	}
+	// Single-schema keywords (object or array form).
+	for _, key := range []string{"items", "additionalItems", "contains", "additionalProperties", "propertyNames", "not", "if", "then", "else", "unevaluatedProperties", "unevaluatedItems", "contentSchema"} {
+		switch schema := obj[key].(type) {
+		case map[string]any:
+			visit(schema)
+		case []any:
+			for _, item := range schema {
+				if sub, ok := item.(map[string]any); ok {
+					visit(sub)
+				}
+			}
+		}
+	}
+	// Arrays of schemas.
+	for _, key := range []string{"allOf", "anyOf", "oneOf", "prefixItems"} {
+		if arr, ok := obj[key].([]any); ok {
+			for _, schema := range arr {
+				if sub, ok := schema.(map[string]any); ok {
+					visit(sub)
+				}
+			}
+		}
+	}
+}
+
 // cleanGeminiSchema recursively removes JSON Schema Draft 7/8 keywords
 // that Google's Protobuf parser rejects for function declarations.
 func cleanGeminiSchema(schema map[string]any) {
 	if schema == nil {
 		return
 	}
+
+	// convertConstToEnum steps through schema nodes and converts scalar const to enum=[const]
+	// (upstream #4831). Do not treat a property named "const" as a schema keyword.
+	convertConstToEnum(schema)
 
 	// Keywords rejected by Gemini
 	unsupported := []string{
@@ -209,39 +277,8 @@ func cleanGeminiSchema(schema map[string]any) {
 		}
 	}
 
-	// Recurse into properties definitions (each value is a property schema, NOT the container map)
-	if propsRaw, hasProps := schema["properties"]; hasProps {
-		if props, ok := propsRaw.(map[string]any); ok {
-			for _, propVal := range props {
-				if propSchema, ok := propVal.(map[string]any); ok {
-					cleanGeminiSchema(propSchema)
-				}
-			}
-		}
-	}
-
-	// Recurse into items (array schema element)
-	if itemsRaw, hasItems := schema["items"]; hasItems {
-		switch items := itemsRaw.(type) {
-		case map[string]any:
-			cleanGeminiSchema(items)
-		case []any:
-			for _, elem := range items {
-				if elemMap, ok := elem.(map[string]any); ok {
-					cleanGeminiSchema(elemMap)
-				}
-			}
-		}
-	}
-
-	// Recurse into additionalProperties if it is a schema (some generators put constraints there)
-	if apRaw, hasAP := schema["additionalProperties"]; hasAP {
-		if apMap, ok := apRaw.(map[string]any); ok {
-			cleanGeminiSchema(apMap)
-			// additionalProperties is stripped above via unsupported list, but if
-			// it survived (e.g. future list change), still ensure its content is clean.
-		}
-	}
+	// Recurse into subschemas using forEachSubschema (upstream #4831: preserves keyword-named parameters)
+	forEachSubschema(schema, cleanGeminiSchema)
 
 	// Clean up required array (must only contain keys present in properties)
 	if reqRaw, hasReq := schema["required"]; hasReq {
