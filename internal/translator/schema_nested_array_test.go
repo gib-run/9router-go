@@ -140,7 +140,7 @@ func TestCleanParametersSchema_NestedArrayItems(t *testing.T) {
 		},
 		{
 			name:  "array with items having anyOf with enums",
-			input: `{"type":"object","properties":{"choices":{"type":"array","items":{"anyOf":[{"type":"string","enum":["a","b"]},{"type":"number"}]}}}}`,
+			input: `{"type":"object","properties":{"choices":{"type":"array","items":{"anyOf":[{"enum":["a","b"]},{"type":"number"}]}}}}`,
 			verify: func(t *testing.T, got map[string]any) {
 				if v := schemaNode(t, got, "properties", "choices", "items", "type"); v != "string" {
 					t.Errorf("flattened anyOf items must pick first branch type string, got %#v", v)
@@ -152,7 +152,7 @@ func TestCleanParametersSchema_NestedArrayItems(t *testing.T) {
 		},
 		{
 			name:  "array with items having anyOf with nested items",
-			input: `{"type":"object","properties":{"matrix":{"type":"array","items":{"anyOf":[{"type":"array","items":{"type":"string"}},{"type":"string"}]}}}}`,
+			input: `{"type":"object","properties":{"matrix":{"type":"array","items":{"anyOf":[{"items":{"type":"string"}},{"type":"string"}]}}}}`,
 			verify: func(t *testing.T, got map[string]any) {
 				if v := schemaNode(t, got, "properties", "matrix", "items", "type"); v != "array" {
 					t.Errorf("flattened anyOf items must pick first branch type array, got %#v", v)
@@ -164,7 +164,7 @@ func TestCleanParametersSchema_NestedArrayItems(t *testing.T) {
 		},
 		{
 			name:  "2d array with items having oneOf with enums",
-			input: `{"type":"object","properties":{"grid":{"type":"array","items":{"type":"array","items":{"oneOf":[{"type":"string","enum":["x","y"]},{"type":"integer"}]}}}}}`,
+			input: `{"type":"object","properties":{"grid":{"type":"array","items":{"type":"array","items":{"oneOf":[{"enum":["x","y"]},{"type":"integer"}]}}}}}`,
 			verify: func(t *testing.T, got map[string]any) {
 				if v := schemaNode(t, got, "properties", "grid", "items", "items", "type"); v != "string" {
 					t.Errorf("flattened oneOf inner items must pick first branch type string, got %#v", v)
