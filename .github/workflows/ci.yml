@@ -157,7 +157,6 @@ jobs:
           # inside a run: block would let it close the string and run a command.
           PR_TITLE: ${{ github.event.pull_request.title }}
           BASE_REF: ${{ github.base_ref }}
-          EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
           # Resolved to a bare commit hash rather than a symbolic name. The
