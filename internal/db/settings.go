@@ -66,6 +66,9 @@ type SettingsData struct {
 	PonytailLevel              string                          `json:"ponytailLevel"`
 	ADHDEnabled                bool                            `json:"adhdEnabled"`
 	ADHDLevel                  string                          `json:"adhdLevel"`
+	SystemPromptEnabled        bool                            `json:"systemPromptEnabled"`
+	SystemPromptPrefix         string                          `json:"systemPromptPrefix,omitempty"`
+	SystemPromptSuffix         string                          `json:"systemPromptSuffix,omitempty"`
 	HeadroomUrl                string                          `json:"headroomUrl"`
 	HeadroomCodeAware          bool                            `json:"headroomCodeAware"`
 	HeadroomKompress           bool                            `json:"headroomKompress"`
@@ -118,6 +121,9 @@ func DefaultSettings() *SettingsData {
 		PonytailLevel:           "full",
 		ADHDEnabled:             false,
 		ADHDLevel:               "full",
+		SystemPromptEnabled:      false,
+		SystemPromptPrefix:       "",
+		SystemPromptSuffix:       "",
 		HeadroomUrl:       "http://localhost:8787",
 		HeadroomKompress:  true,
 		HeadroomTimeoutMs: 3000,
@@ -217,6 +223,15 @@ func (r *Repo) GetSettings() (*SettingsData, error) {
 	}
 	if lvl := handlerutil.GetString(raw, "adhdLevel"); lvl != "" {
 		s.ADHDLevel = lvl
+	}
+	if v, ok := raw["systemPromptEnabled"].(bool); ok {
+		s.SystemPromptEnabled = v
+	}
+	if v := handlerutil.GetString(raw, "systemPromptPrefix"); v != "" {
+		s.SystemPromptPrefix = v
+	}
+	if v := handlerutil.GetString(raw, "systemPromptSuffix"); v != "" {
+		s.SystemPromptSuffix = v
 	}
 	if v := handlerutil.GetString(raw, "headroomUrl"); v != "" {
 		s.HeadroomUrl = v
