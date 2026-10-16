@@ -1245,11 +1245,84 @@ func deriveOpencodeSession(rawSession, clientTool, connID string) string {
 	return proxy.TranslateOpenCodeSessionID(raw, clientTool)
 }
 
+const museSparkMinOutputTokens = 512
+
+func clampMuseSparkOutputBudget(m map[string]any) {
+	var val *int
+	if maxOut, ok := m["max_output_tokens"]; ok {
+		switch v := maxOut.(type) {
+		case float64:
+			i := int(v)
+			val = &i
+		case int:
+			val = &v
+		case int64:
+			i := int(v)
+			val = &i
+		}
+	}
+	if val == nil {
+		if maxComp, ok := m["max_completion_tokens"]; ok {
+			switch v := maxComp.(type) {
+			case float64:
+				i := int(v)
+				val = &i
+			case int:
+				val = &v
+			case int64:
+				i := int(v)
+				val = &i
+			}
+		}
+	}
+	if val == nil {
+		if maxTok, ok := m["max_tokens"]; ok {
+			switch v := maxTok.(type) {
+			case float64:
+				i := int(v)
+				val = &i
+			case int:
+				val = &v
+			case int64:
+				i := int(v)
+				val = &i
+			}
+		}
+	}
+
+	budget := museSparkMinOutputTokens
+	if val != nil && *val > museSparkMinOutputTokens {
+		budget = *val
+	}
+	m["max_output_tokens"] = budget
+	delete(m, "max_tokens")
+	delete(m, "max_completion_tokens")
+}
+
 func normalizeMuseSparkResponsesBody(body []byte, cleanModel string) ([]byte, error) {
 	var m map[string]any
 	if err := json.Unmarshal(body, &m); err != nil {
 		return body, nil
 	}
+	// Check for reasoning effort suffix in cleanModel if present, e.g. model-name(high)
+	if idx := strings.IndexByte(cleanModel, '('); idx != -1 {
+		if endIdx := strings.IndexByte(cleanModel[idx:], ')'); endIdx != -1 {
+			effortSuffix := cleanModel[idx+1 : idx+endIdx]
+			if effortSuffix != "" {
+				if _, hasEffort := m["reasoning_effort"]; !hasEffort {
+					if _, hasReasoning := m["reasoning"]; !hasReasoning {
+						m["reasoning"] = map[string]any{
+							"effort":  effortSuffix,
+							"summary": "auto",
+						}
+					}
+				}
+			}
+		}
+	}
+
+	clampMuseSparkOutputBudget(m)
+
 	if rEffort, ok := m["reasoning_effort"].(string); ok {
 		if rEffort == "max" {
 			rEffort = "xhigh"
