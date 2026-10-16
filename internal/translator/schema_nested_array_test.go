@@ -138,6 +138,42 @@ func TestCleanParametersSchema_NestedArrayItems(t *testing.T) {
 				}
 			},
 		},
+		{
+			name:  "array with items having anyOf with enums",
+			input: `{"type":"object","properties":{"choices":{"type":"array","items":{"anyOf":[{"type":"string","enum":["a","b"]},{"type":"number"}]}}}}`,
+			verify: func(t *testing.T, got map[string]any) {
+				if v := schemaNode(t, got, "properties", "choices", "items", "type"); v != "string" {
+					t.Errorf("flattened anyOf items must pick first branch type string, got %#v", v)
+				}
+				if enum, ok := schemaNode(t, got, "properties", "choices", "items", "enum").([]any); !ok || len(enum) != 2 {
+					t.Errorf("enum must survive, got %#v", enum)
+				}
+			},
+		},
+		{
+			name:  "array with items having anyOf with nested items",
+			input: `{"type":"object","properties":{"matrix":{"type":"array","items":{"anyOf":[{"type":"array","items":{"type":"string"}},{"type":"string"}]}}}}`,
+			verify: func(t *testing.T, got map[string]any) {
+				if v := schemaNode(t, got, "properties", "matrix", "items", "type"); v != "array" {
+					t.Errorf("flattened anyOf items must pick first branch type array, got %#v", v)
+				}
+				if v := schemaNode(t, got, "properties", "matrix", "items", "items", "type"); v != "string" {
+					t.Errorf("nested items type must survive, got %#v", v)
+				}
+			},
+		},
+		{
+			name:  "2d array with items having oneOf with enums",
+			input: `{"type":"object","properties":{"grid":{"type":"array","items":{"type":"array","items":{"oneOf":[{"type":"string","enum":["x","y"]},{"type":"integer"}]}}}}}`,
+			verify: func(t *testing.T, got map[string]any) {
+				if v := schemaNode(t, got, "properties", "grid", "items", "items", "type"); v != "string" {
+					t.Errorf("flattened oneOf inner items must pick first branch type string, got %#v", v)
+				}
+				if enum, ok := schemaNode(t, got, "properties", "grid", "items", "items", "enum").([]any); !ok || len(enum) != 2 {
+					t.Errorf("enum must survive in inner items, got %#v", enum)
+				}
+			},
+		},
 	}
 
 	for _, tt := range tests {

@@ -195,11 +195,17 @@ func cleanGeminiSchema(schema map[string]any) {
 		switch items := itemsRaw.(type) {
 		case map[string]any:
 			cleanGeminiSchema(items)
+			if t, ok := schema["type"].(string); ok && t == "array" {
+				schema["items"] = normalizeArrayItems(schema["items"])
+			}
 		case []any:
 			for _, elem := range items {
 				if elemMap, ok := elem.(map[string]any); ok {
 					cleanGeminiSchema(elemMap)
 				}
+			}
+			if t, ok := schema["type"].(string); ok && t == "array" {
+				schema["items"] = normalizeArrayItems(schema["items"])
 			}
 		}
 	}
