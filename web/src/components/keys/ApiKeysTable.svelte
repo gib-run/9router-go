@@ -144,6 +144,13 @@
     if ((k.tokenQuota ?? 0) > 0) {
       badges.push({ label: `${(k.tokenQuota ?? 0).toLocaleString()} tok quota`, tone: 'info' })
     }
+    if ((k.tokenLimit ?? 0) > 0) {
+      const exceeded = (k.usedTokens ?? 0) >= (k.tokenLimit ?? 0)
+      badges.push({
+        label: `${(k.tokenLimit ?? 0).toLocaleString()} limit`,
+        tone: exceeded ? 'danger' : 'info',
+      })
+    }
     if ((k.expiresAt ?? '') !== '') {
       badges.push({ label: isExpired(k) ? 'expired' : 'expires', tone: isExpired(k) ? 'danger' : 'info' })
     }
@@ -165,6 +172,15 @@
   function handleToggle(k: APIKey) {
     return runExclusive(k.id, async () => {
       await api.setApiKeyActive(k.id, !isActive(k))
+      onRefresh?.()
+    })
+  }
+
+  function handleResetQuota(k: APIKey) {
+    if (!confirm(`Reset used tokens to 0 for "${keyLabel(k)}"?`)) return
+    return runExclusive(k.id, async () => {
+      await api.resetApiKeyQuota(k.id)
+      notifications.success(`Reset token quota for ${keyLabel(k)}`)
       onRefresh?.()
     })
   }
@@ -370,6 +386,14 @@
           disabled={busyId !== null}
           onSelect={() => handleRotate(k)}
         />
+        {#if (k.tokenLimit ?? 0) > 0 || (k.usedTokens ?? 0) > 0}
+          <MenuItem
+            label="Reset token quota"
+            icon="restart_alt"
+            disabled={busyId !== null}
+            onSelect={() => handleResetQuota(k)}
+          />
+        {/if}
 
         <div class="my-1 border-t border-border-subtle" role="separator"></div>
 
@@ -420,6 +444,26 @@
           · {(k.usedCount ?? 0).toLocaleString()} req
         {/if}
       </p>
+      {#if (k.tokenLimit ?? 0) > 0}
+        {@const used = k.usedTokens ?? 0}
+        {@const limit = k.tokenLimit ?? 1}
+        {@const pct = Math.min(100, Math.round((used / limit) * 100))}
+        {@const isExceeded = used >= limit}
+        <div class="mt-1.5 space-y-1 w-full max-w-[180px]">
+          <div class="flex items-center justify-between text-[10px] text-text-subtle font-code">
+            <span class={isExceeded ? 'text-danger font-semibold' : ''}>
+              {used.toLocaleString()} / {limit.toLocaleString()} tok
+            </span>
+            <span class={isExceeded ? 'text-danger font-semibold' : ''}>{pct}%</span>
+          </div>
+          <div class="h-1.5 w-full rounded-full bg-surface-3 overflow-hidden">
+            <div
+              class="h-full rounded-full transition-all {isExceeded ? 'bg-danger' : pct > 80 ? 'bg-amber-500' : 'bg-brand-500'}"
+              style="width: {pct}%"
+            ></div>
+          </div>
+        </div>
+      {/if}
     {/snippet}
 
     <!-- Mobile: one card per key. -->

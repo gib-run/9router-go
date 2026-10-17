@@ -5,7 +5,6 @@ import (
 	"9router/proxy/internal/log"
 	"9router/proxy/internal/middleware"
 	"9router/proxy/internal/models"
-	"9router/proxy/internal/providers"
 	"errors"
 	"net/http"
 	"strings"
@@ -87,15 +86,9 @@ func modelAllowed(patterns []string, candidates ...string) bool {
 	if len(patterns) == 0 {
 		return true
 	}
-	for _, pattern := range patterns {
-		pattern = strings.TrimSpace(pattern)
-		if pattern == "" {
-			continue
-		}
-		for _, candidate := range candidates {
-			if candidate != "" && providers.MatchModelPattern(pattern, candidate) {
-				return true
-			}
+	for _, candidate := range candidates {
+		if candidate != "" && middleware.IsModelAllowedForKey(patterns, candidate) {
+			return true
 		}
 	}
 	return false

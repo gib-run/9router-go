@@ -3,14 +3,16 @@ package middleware
 import (
 	"9router/proxy/internal/log"
 	"context"
+	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
 
 	"9router/proxy/internal/db"
 	"9router/proxy/internal/handlerutil"
-	"9router/proxy/internal/models"
 	"9router/proxy/internal/keikey"
+	"9router/proxy/internal/models"
 )
 
 // ContextKey is a custom type for context keys to avoid collisions.
@@ -18,6 +20,20 @@ type ContextKey string
 
 // ApiKeyContextKey is the context key for the authenticated API key object.
 const ApiKeyContextKey ContextKey = "apiKey"
+
+// ErrKeyQuotaExceeded is returned when an API key has reached its token limit.
+var ErrKeyQuotaExceeded = errors.New("key_quota_exceeded")
+
+// CheckApiKeyQuota checks if the API key has exceeded its configured token limit.
+func CheckApiKeyQuota(key *models.APIKey) error {
+	if key == nil {
+		return nil
+	}
+	if key.TokenLimit != nil && *key.TokenLimit > 0 && key.UsedTokens >= *key.TokenLimit {
+		return ErrKeyQuotaExceeded
+	}
+	return nil
+}
 
 // RequireApiKey creates a middleware handler that authenticates requests using client API keys.
 // It checks the Authorization header (Bearer <key>) and the query parameter `key`.
@@ -67,6 +83,20 @@ func RequireApiKey(repo *db.Repo) func(http.Handler) http.Handler {
 					handlerutil.WriteJSONError(w, http.StatusUnauthorized, "API key expired.")
 					return
 				}
+			}
+
+			// Check token quota
+			if err := CheckApiKeyQuota(apiKeyObj); err != nil {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusTooManyRequests)
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"error": map[string]any{
+						"message": "API key token quota exceeded",
+						"type":    "key_quota_exceeded",
+						"code":    "key_quota_exceeded",
+					},
+				})
+				return
 			}
 
 			// F-14 usage accounting. Best-effort: the row write must never turn
@@ -121,7 +151,18 @@ func verifyApiKey(plaintext string, apiKey *models.APIKey) bool {
 
 // GetAuthenticatedApiKey retrieves the authenticated APIKey object from the request context.
 func GetAuthenticatedApiKey(r *http.Request) *models.APIKey {
-	val := r.Context().Value(ApiKeyContextKey)
+	if r == nil {
+		return nil
+	}
+	return GetAuthenticatedApiKeyFromContext(r.Context())
+}
+
+// GetAuthenticatedApiKeyFromContext retrieves the authenticated APIKey object from a context.
+func GetAuthenticatedApiKeyFromContext(ctx context.Context) *models.APIKey {
+	if ctx == nil {
+		return nil
+	}
+	val := ctx.Value(ApiKeyContextKey)
 	if val == nil {
 		return nil
 	}

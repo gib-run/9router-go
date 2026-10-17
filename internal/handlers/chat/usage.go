@@ -273,6 +273,22 @@ func (h *ChatHandler) logUsage(ctx context.Context, info *UsageLogInfo, usage *t
 		log.Error("usage", "insert failed", "error", err)
 	}
 
+	if h.Repo != nil && totalTokens > 0 {
+		var keyID string
+		if k := middleware.GetAuthenticatedApiKeyFromContext(ctx); k != nil && k.ID != "" {
+			keyID = k.ID
+		} else if info != nil && info.APIKey != "" {
+			if existingKey, _ := h.Repo.GetApiKeyByKey(info.APIKey); existingKey != nil {
+				keyID = existingKey.ID
+			}
+		}
+		if keyID != "" {
+			if err := h.Repo.IncrementKeyUsedTokensByID(keyID, int64(totalTokens)); err != nil {
+				log.Warn("usage", "increment key used tokens failed", "keyId", keyID, "error", err)
+			}
+		}
+	}
+
 	// Prometheus mirrors the row that was just inserted: a request is counted
 	// once, labelled with the provider/model the usage row names, and never
 	// with the caller's API key.

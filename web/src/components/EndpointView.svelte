@@ -84,6 +84,7 @@
   // what the integration snippets above point an operator at.
   let isCreateKeyOpen = $state(false)
   let newKeyName = $state('')
+  let newKeyTokenLimit = $state<number | null>(null)
   let isSubmittingKey = $state(false)
   let newlyCreatedKey = $state<string | null>(null)
 
@@ -362,11 +363,16 @@
 
     isSubmittingKey = true
     try {
-      const res = await api.createApiKey({ name: newKeyName.trim() })
+      const payload: { name: string; tokenLimit?: number | null } = { name: newKeyName.trim() }
+      if (newKeyTokenLimit !== null && newKeyTokenLimit > 0) {
+        payload.tokenLimit = newKeyTokenLimit
+      }
+      const res = await api.createApiKey(payload)
       if (res.key) {
         newlyCreatedKey = res.key
         localStorage.setItem('9router_key', res.key)
         newKeyName = ''
+        newKeyTokenLimit = null
         isCreateKeyOpen = false
         await loadStatus()
         onRefresh?.()
@@ -714,6 +720,7 @@
           onclick={() => {
             isCreateKeyOpen = false
             newKeyName = ''
+            newKeyTokenLimit = null
           }}
           class="text-text-muted hover:text-text-main cursor-pointer"
         >
@@ -731,6 +738,20 @@
             type="text"
             bind:value={newKeyName}
             placeholder="Production Key"
+            class="w-full px-3 py-2 rounded-lg bg-bg border border-border text-sm text-text-main focus:outline-none focus:border-brand-500"
+          />
+        </div>
+
+        <div class="space-y-1">
+          <label for="key-limit-input" class="block text-xs font-semibold text-text-muted">
+            Token Limit (optional)
+          </label>
+          <input
+            id="key-limit-input"
+            type="number"
+            min="0"
+            bind:value={newKeyTokenLimit}
+            placeholder="e.g. 100000 (0 for unlimited)"
             class="w-full px-3 py-2 rounded-lg bg-bg border border-border text-sm text-text-main focus:outline-none focus:border-brand-500"
           />
         </div>

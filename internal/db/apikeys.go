@@ -32,7 +32,8 @@ const apiKeyColumns = `SELECT id, key, name, machineId, isActive, createdAt,
 	rateLimitRPM, rateLimitTPM, rateLimitConcurrency,
 	tokenQuota, queueTimeoutMs,
 	keyHash, lookupHash, keyDisplay,
-	expiresAt, lastUsedAt, usedCount, metadata`
+	expiresAt, lastUsedAt, usedCount, metadata,
+	token_limit, used_tokens`
 
 // apiKeyScan returns the Scan destinations for apiKeyColumns plus an applier
 // that must run after Scan has filled the nullable columns.
@@ -43,12 +44,13 @@ func apiKeyScan(k *models.APIKey) (dest []any, apply func()) {
 	var keyHash, lookupHash, keyDisplay sql.NullString
 	var expiresAt, lastUsedAt, metadata sql.NullString
 	var usedCount sql.NullInt64
+	var tokenLimit, usedTokens sql.NullInt64
 	dest = []any{&k.ID, &k.Key, &nameVal, &machineVal, &k.IsActive, &k.CreatedAt,
 		&rateRPM, &rateTPM, &rateConc, &tokenQuota, &queueTimeout, &keyHash, &lookupHash, &keyDisplay,
-		&expiresAt, &lastUsedAt, &usedCount, &metadata}
+		&expiresAt, &lastUsedAt, &usedCount, &metadata, &tokenLimit, &usedTokens}
 	apply = func() {
 		applyApiKeyNulls(k, nameVal, machineVal, rateRPM, rateTPM, rateConc, tokenQuota, queueTimeout, usedCount,
-			keyHash, lookupHash, keyDisplay, expiresAt, lastUsedAt, metadata)
+			keyHash, lookupHash, keyDisplay, expiresAt, lastUsedAt, metadata, tokenLimit, usedTokens)
 	}
 	return dest, apply
 }
@@ -57,7 +59,8 @@ func apiKeyScan(k *models.APIKey) (dest []any, apply func()) {
 func applyApiKeyNulls(k *models.APIKey, nameVal, machineVal sql.NullString,
 	rateRPM, rateTPM, rateConc, tokenQuota, queueTimeout, usedCount sql.NullInt64,
 	keyHash, lookupHash, keyDisplay sql.NullString,
-	expiresAt, lastUsedAt, metadata sql.NullString) {
+	expiresAt, lastUsedAt, metadata sql.NullString,
+	tokenLimit, usedTokens sql.NullInt64) {
 	if nameVal.Valid {
 		k.Name = &nameVal.String
 	}
@@ -105,6 +108,13 @@ func applyApiKeyNulls(k *models.APIKey, nameVal, machineVal sql.NullString,
 	}
 	if metadata.Valid {
 		k.Metadata = &metadata.String
+	}
+	if tokenLimit.Valid {
+		v := tokenLimit.Int64
+		k.TokenLimit = &v
+	}
+	if usedTokens.Valid {
+		k.UsedTokens = usedTokens.Int64
 	}
 }
 

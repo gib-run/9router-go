@@ -56,7 +56,8 @@ func (h *DashboardHandler) HandleUpdateApiKey(w http.ResponseWriter, r *http.Req
 		// stored name alone; an empty string is a deliberate "clear the name",
 		// which is what the dashboard's edit dialog sends when the operator
 		// blanks the field.
-		Name *string `json:"name"`
+		Name       *string `json:"name"`
+		TokenLimit *int64  `json:"tokenLimit"`
 	}
 	if len(body) > 0 {
 		if err := json.Unmarshal(body, &req); err != nil {
@@ -160,18 +161,33 @@ func (h *DashboardHandler) HandleUpdateApiKey(w http.ResponseWriter, r *http.Req
 			return
 		}
 	}
+	if req.TokenLimit != nil {
+		if *req.TokenLimit < 0 {
+			handlerutil.WriteJSONError(w, http.StatusBadRequest, "tokenLimit must be non-negative")
+			return
+		}
+		if err := h.Repo.SetApiKeyTokenLimit(id, req.TokenLimit); err != nil {
+			handlerutil.WriteJSONError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
 	// The auth cache holds a verified key row for a few seconds so argon2
 	// does not run on every request. A policy change is not a latency trade-off:
 	// the operator just revoked access, so the cached row must go now — an
 	// expired or newly limited key must not keep working until its TTL lapses.
 	keikey.DefaultAuthCache().InvalidateByID(id)
+
+	limitsMap := map[string]any{
+		"rpm": rpm, "tpm": tpm, "concurrency": conc,
+		"tokenQuota": quota, "queueTimeoutMs": queueMs,
+	}
+	if req.TokenLimit != nil {
+		limitsMap["tokenLimit"] = *req.TokenLimit
+	}
 	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{
 		"status": "ok",
 		"id":     id,
-		"limits": map[string]int{
-			"rpm": rpm, "tpm": tpm, "concurrency": conc,
-			"tokenQuota": quota, "queueTimeoutMs": queueMs,
-		},
+		"limits": limitsMap,
 	})
 }
 

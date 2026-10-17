@@ -51,6 +51,8 @@ func (h *DashboardHandler) HandleGetApiKeys(w http.ResponseWriter, r *http.Reque
 			"lastUsedAt":           stringOrEmpty(k.LastUsedAt),
 			"usedCount":            intOrZero(k.UsedCount),
 			"metadata":             stringOrEmpty(k.Metadata),
+			"tokenLimit":           k.TokenLimit,
+			"usedTokens":           k.UsedTokens,
 		})
 	}
 	handlerutil.WriteJSON(w, http.StatusOK, sanitized)
@@ -113,10 +115,11 @@ func (h *DashboardHandler) HandleCreateApiKey(w http.ResponseWriter, r *http.Req
 	defer r.Body.Close()
 
 	var req struct {
-		ID        string `json:"id"`
-		Key       string `json:"key"`
-		Name      string `json:"name"`
-		MachineID string `json:"machineId"`
+		ID         string `json:"id"`
+		Key        string `json:"key"`
+		Name       string `json:"name"`
+		MachineID  string `json:"machineId"`
+		TokenLimit *int64 `json:"tokenLimit"`
 	}
 	if len(body) > 0 {
 		if err := json.Unmarshal(body, &req); err != nil {
@@ -136,6 +139,11 @@ func (h *DashboardHandler) HandleCreateApiKey(w http.ResponseWriter, r *http.Req
 		handlerutil.WriteJSONError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	if req.TokenLimit != nil {
+		if err := h.Repo.SetApiKeyTokenLimit(req.ID, req.TokenLimit); err != nil {
+			log.Error("apikeys", "store api key token limit failed", "error", err)
+		}
+	}
 
 	// The secret is stored in the clear so the dashboard can reveal and copy
 	// it again later (issue #199). This reopens the F-6/DB-02 trade-off — a
@@ -150,11 +158,15 @@ func (h *DashboardHandler) HandleCreateApiKey(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{
+	resp := map[string]any{
 		"status": "ok",
 		"id":     req.ID,
 		"key":    req.Key,
-	})
+	}
+	if req.TokenLimit != nil {
+		resp["tokenLimit"] = req.TokenLimit
+	}
+	handlerutil.WriteJSON(w, http.StatusOK, resp)
 }
 
 // HandleRotateApiKey handles POST /api/keys/{id}/rotate.

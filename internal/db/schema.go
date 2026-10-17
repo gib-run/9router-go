@@ -292,6 +292,9 @@ var goOnlyColumns = [][3]string{
 	{"apiKeys", "lastUsedAt", "TEXT DEFAULT ''"},
 	{"apiKeys", "usedCount", "INTEGER DEFAULT 0"},
 	{"apiKeys", "metadata", "TEXT DEFAULT ''"},
+	// Per-key token limits & usage quotas
+	{"apiKeys", "token_limit", "INTEGER DEFAULT NULL"},
+	{"apiKeys", "used_tokens", "INTEGER NOT NULL DEFAULT 0"},
 }
 
 // keiRouterTables are Go-only tables for KeiRouter port features.

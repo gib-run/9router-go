@@ -79,6 +79,9 @@ type APIKey struct {
 	LastUsedAt *string `json:"lastUsedAt,omitempty"`
 	UsedCount  *int    `json:"usedCount,omitempty"`
 	Metadata   *string `json:"metadata,omitempty"`
+	// Token quota & usage
+	TokenLimit *int64 `json:"tokenLimit,omitempty"`
+	UsedTokens int64  `json:"usedTokens"`
 }
 
 // Combo represents a multi-model routing combinated alias.

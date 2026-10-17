@@ -97,6 +97,10 @@ export interface APIKey {
   usedCount?: number
   /** Free-form JSON object, e.g. { customerId, priceCents }. */
   metadata?: string
+  /** Per-key token quota / limit. null or 0 means unlimited. */
+  tokenLimit?: number | null
+  /** Cumulative used tokens counter. */
+  usedTokens?: number
 }
 
 export interface APIKeyPolicy {
@@ -111,6 +115,8 @@ export interface APIKeyPolicy {
   metadata?: string
   /** Renames the key. An empty string clears the stored name. */
   name?: string
+  /** Per-key token quota / limit. null or 0 means unlimited. */
+  tokenLimit?: number | null
 }
 
 export interface GuardrailPolicy {
@@ -1093,8 +1099,8 @@ export const api = {
 
   // API Keys
   getApiKeys: () => request<APIKey[]>('/api/keys'),
-  createApiKey: (payload: { name?: string; machineId?: string; key?: string }) =>
-    request<{ success: boolean; id: string; key: string }>('/api/keys', {
+  createApiKey: (payload: { name?: string; machineId?: string; key?: string; tokenLimit?: number | null }) =>
+    request<{ success: boolean; id: string; key: string; tokenLimit?: number | null }>('/api/keys', {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
@@ -1105,6 +1111,10 @@ export const api = {
   toggleApiKey: (id: string) =>
     request<{ success: boolean; isActive: boolean }>(`/api/keys/${encodeURIComponent(id)}/toggle`, {
       method: 'PUT',
+    }),
+  resetApiKeyQuota: (id: string) =>
+    request<{ status: string; id: string }>(`/api/keys/${encodeURIComponent(id)}/reset-quota`, {
+      method: 'POST',
     }),
 
   /** Mints a replacement secret, keeping the row's id, policy and history. */

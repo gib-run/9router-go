@@ -20,6 +20,8 @@
   // no quota, and the server's default queue timeout.
   let tokenQuota = $state(apiKey.tokenQuota ?? 0)
   let queueTimeoutMs = $state(apiKey.queueTimeoutMs ?? 0)
+  let tokenLimit = $state(apiKey.tokenLimit ?? 0)
+  let isResettingQuota = $state(false)
 
   // expiresAt is stored as RFC3339. The input is a plain datetime-local because
   // the browser needs a local time and the server needs UTC; convert at the edge
@@ -87,6 +89,20 @@
     if (!hasLoadedModels) loadModels()
   })
 
+  async function resetQuota() {
+    if (!confirm('Reset used tokens to 0 for this key?')) return
+    try {
+      isResettingQuota = true
+      await api.resetApiKeyQuota(apiKey.id)
+      apiKey.usedTokens = 0
+      onSaved()
+    } catch (err) {
+      error = err instanceof Error ? err.message : String(err)
+    } finally {
+      isResettingQuota = false
+    }
+  }
+
   async function save(e: SubmitEvent) {
     e.preventDefault()
     error = null
@@ -125,6 +141,7 @@
         rateLimitConcurrency: nonNegative(concurrency),
         tokenQuota: nonNegative(tokenQuota),
         queueTimeoutMs: nonNegative(queueTimeoutMs),
+        tokenLimit: nonNegative(tokenLimit),
         expiresAt: toRFC3339(expiresLocal),
         metadata: metadataValue,
         name: name.trim(),
@@ -286,6 +303,38 @@
               How long a request waits for a free concurrency slot before it is refused with 429.
               Leave 0 for the server default.
             </p>
+          </div>
+        </div>
+
+        <div class="p-3 rounded-xl border border-border bg-surface-3/30 space-y-2">
+          <div class="flex items-center justify-between">
+            <label for="pol-token-limit" class="block font-semibold text-text-main">
+              Token limit (429 quota)
+            </label>
+            {#if (apiKey.usedTokens ?? 0) > 0}
+              <button
+                type="button"
+                disabled={isResettingQuota}
+                onclick={resetQuota}
+                class="px-2.5 py-1 text-[11px] rounded-lg border border-amber-500/30 text-amber-600 hover:bg-amber-500/10 transition cursor-pointer disabled:opacity-50 dark:text-amber-400"
+              >
+                {isResettingQuota ? 'Resetting…' : 'Reset used tokens'}
+              </button>
+            {/if}
+          </div>
+          <input
+            id="pol-token-limit"
+            type="number"
+            min="0"
+            step="1"
+            bind:value={tokenLimit}
+            class="w-full bg-surface border border-border rounded-lg px-3 py-2 font-code text-xs text-text-main focus:outline-none focus:border-brand-500"
+          />
+          <div class="flex items-center justify-between text-[11px] text-text-subtle">
+            <span>When set &gt; 0, requests are rejected with HTTP 429 when used tokens reaches this limit.</span>
+            {#if (apiKey.usedTokens ?? 0) > 0}
+              <span class="font-code font-medium text-text-muted">Used: {(apiKey.usedTokens ?? 0).toLocaleString()}</span>
+            {/if}
           </div>
         </div>
       </section>
