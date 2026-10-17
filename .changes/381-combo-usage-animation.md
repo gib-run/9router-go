@@ -22,13 +22,21 @@
   off to, the row that answered says the rest were not used, and later rows are
   dimmed. A single column also gives the text the full card width on a phone,
   where a multi-column layout left the member column too narrow to read.
+- Member-to-row matching moved to `comboMatch.ts` so its rules can be tested. It
+  also fixes a mislabel: a bare prefix test made `oc` and `ocz` the same provider,
+  and the model-tail fallback then let one member take the other's row. A prefix
+  now only counts when it ends on a separator, and the tail fallback refuses a row
+  whose provider belongs to another member of the same combo (a slug is unknown,
+  so the tail may still stand in for it). `comboMatch.test.ts` covers both.
 - `web/embed.go`: the entry document and client-side routes are served with
   `no-cache`, and content-hashed assets with `immutable`. Embedded files carry no
   ModTime, so a browser had nothing to revalidate against and could keep serving
   a previous bundle after an upgrade.
-- Verified: `go build ./...`, `go vet`, `go test ./internal/usagetracker/
-  ./internal/handlers/chat/ ./web/` (new `TestTracker_RequestedModelPairing` and
-  `TestTracker_RecentRequestCarriesLatency`), the dashboard bundle builds in CI,
+- Verified: `go build ./...`, `go vet`, `gofmt -l` clean, `go test
+  ./internal/usagetracker/ ./internal/handlers/chat/ ./web/` (new
+  `TestTracker_RequestedModelPairing` and `TestTracker_RecentRequestCarriesLatency`),
+  `bun test src/components/analytics/` (new `comboMatch.test.ts`, 31 cases), the
+  dashboard bundle builds in CI,
   and on a live instance the usage stream carries `comboName`/`requestedModel`
   while a combo request runs (`comboName=xcode-cepat`, member
   `opencode/cat-jam-free`, `latencyMs=1351`) while a plain request carries the

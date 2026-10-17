@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { matchMemberRow, parseMember } from './comboMatch'
   import type { ActiveRequestItem, RecentRequestItem } from './types'
 
   interface Props {
@@ -23,7 +24,6 @@
     key: string
     provider: string
     model: string
-    resolved: string
     status: Status
     note: string
     color: string
@@ -57,47 +57,6 @@
     return (parts.length > 1 ? parts[0][0] + parts[1][0] : s.slice(0, 2)).toUpperCase()
   }
 
-  function parseMember(raw: string): { provider: string; model: string } {
-    const s = String(raw || '').trim()
-    const i = s.indexOf('/')
-    return i > 0 ? { provider: s.slice(0, i), model: s.slice(i + 1) } : { provider: s, model: '' }
-  }
-
-  function sameProvider(a?: string, b?: string): boolean {
-    const x = (a || '').toLowerCase().trim()
-    const y = (b || '').toLowerCase().trim()
-    if (!x || !y) return false
-    return x === y || x.startsWith(y) || y.startsWith(x)
-  }
-
-  /** Last path segment of a model id, e.g. "cbcn/deepseek-v4.1-flash" -> "deepseek-v4.1-flash". */
-  function modelTail(model?: string): string {
-    const parts = (model || '').toLowerCase().trim().split('/')
-    return parts[parts.length - 1]
-  }
-
-  /**
-   * The stream row recorded for a combo member. A member is written with the name
-   * the operator uses while the stream reports the provider slug the gateway
-   * resolved, so the heads differ for custom providers: provider+tail first, then
-   * provider, and only then the model tail.
-   */
-  function memberRow(
-    rows: ActiveRequestItem[] | RecentRequestItem[],
-    provider: string,
-    model: string
-  ): ActiveRequestItem | RecentRequestItem | undefined {
-    const tail = modelTail(model)
-    const byProvider = rows.find((r) => sameProvider(r.provider, provider))
-    const byProviderAndTail = rows.find(
-      (r) => sameProvider(r.provider, provider) && tail && modelTail(r.model) === tail
-    )
-    // Provider first, so two members that differ only by provider
-    // (oc/space-bunny-free vs ocz/space-bunny-free) never swap rows; the model
-    // tail is only the fallback for providers the stream reports by slug.
-    return byProviderAndTail || byProvider || (tail ? rows.find((r) => modelTail(r.model) === tail) : undefined)
-  }
-
   /** The combo in use right now, or the one that finished within the window. */
   let liveCombo = $derived.by(() => {
     for (const r of activeRequests) {
@@ -118,6 +77,11 @@
 
   let strategy = $derived((definition?.strategy || '').trim() || 'fallback')
 
+  /** Every member provider of this combo: tells a slug apart from a sibling. */
+  let memberProviders = $derived(
+    (definition?.members || []).map((raw) => parseMember(raw).provider).filter(Boolean)
+  )
+
   /**
    * One row per member, in the combo's own order, each carrying what the usage
    * stream says about it: in flight now, answered, or refused. A member that was
@@ -133,8 +97,8 @@
 
     return (def.members || []).map((raw) => {
       const { provider, model } = parseMember(raw)
-      const inFlight = memberRow(active, provider, model)
-      const finished = memberRow(recent, provider, model) as RecentRequestItem | undefined
+      const inFlight = matchMemberRow(active, provider, model, memberProviders)
+      const finished = matchMemberRow(recent, provider, model, memberProviders)
       const finishedStatus = String(finished?.status || '')
       const latency = Number(finished?.latencyMs || 0)
       const resolved = String(inFlight?.provider || finished?.provider || provider)
@@ -155,7 +119,7 @@
         status = 'failed'
         note = finishedStatus || 'gagal'
       }
-      return { key: raw, provider, model, resolved, status, note, color: colorFor(provider), latency }
+      return { key: raw, provider, model, status, note, color: colorFor(provider), latency }
     })
   })
 
