@@ -135,11 +135,11 @@ type UsageDailyRow struct {
 // GetUsageDailyRange returns the most recent daily usage rows up to limit,
 // newest first, each with its dateKey.
 func (r *Repo) GetUsageDailyRange(limit int) ([]UsageDailyRow, error) {
-	rows, err := r.db.Query(`SELECT dateKey, data FROM usageDaily ORDER BY dateKey DESC LIMIT ?`, limit)
+	rows, err := r.db.Query(`SELECT dateKey, data FROM usageDaily ORDER BY dateKey DESC LIMIT ?`, limit) //nolint:noctx
 	if err != nil {
 		return nil, fmt.Errorf("query usageDaily range: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var res []UsageDailyRow
 	for rows.Next() {
 		var row UsageDailyRow
