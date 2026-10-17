@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { matchMemberRow, parseMember } from './comboMatch'
+  import { matchMemberRow, parseMember, sameProvider } from './comboMatch'
   import type { ActiveRequestItem, RecentRequestItem } from './types'
 
   interface Props {
