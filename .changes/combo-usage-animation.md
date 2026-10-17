@@ -5,10 +5,12 @@
   client asked for, and which member of it did the work, was invisible.
 - The tracker now carries both names next to the member — `requestedModel` and
   `comboName` on active and recent requests — paired with the same counter key
-  the counters use, and cleared when that counter reaches zero, so a row cannot
-  be labelled with another request's combo. `comboName` is set only when a combo
-  served the request, so the dashboard acts on a statement from the backend
-  instead of guessing which model names are combos.
+  the counters use, and cleared when that counter reaches zero. The counters
+  cannot separate two requests for the same member, so an in-flight row takes the
+  names of the latest start; completed requests are unaffected, each carrying its
+  own names. `comboName` is set only when a combo served the request, so the
+  dashboard acts on a statement from the backend instead of guessing which model
+  names are combos.
 - `TrackPending` keeps its signature and now delegates, so other callers (media)
   are unaffected.
 - Recent requests also carry `latencyMs`, which `logUsage` already had: a member

@@ -70,8 +70,11 @@ type Tracker struct {
 	byModel   map[string]int
 	byAccount map[string]map[string]int
 	// requestedByKey maps the same "model (provider)" key the counters use to
-	// the names behind the request, so a row can never be labelled with another
-	// request's combo.
+	// the names behind the request. The counters cannot tell two requests for
+	// the same member apart, so neither can this: if two combos are in flight
+	// on one member at once, the later start names the row and the row goes
+	// back to unnamed once the count drains. Completed requests do not rely on
+	// it — each carries its own names on the ring entry.
 	requestedByKey    map[string]pendingNames
 	lastErrorProvider string
 	lastErrorTs       int64
