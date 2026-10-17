@@ -630,45 +630,46 @@ func (h *ChatHandler) handleComboFallback(ctx context.Context, w http.ResponseWr
 						// model in the combo would receive the same prompt and
 						// answer with the same refused content, so continuing
 						// would spread it across every provider the combo names.
-log.Warn("combo", "guardrail block, stopping turn", "provider", modelInfo.Provider, "conn", connID)
-							var ue *upstreamError
-							errors.As(fwdErr, &ue)
+						log.Warn("combo", "guardrail block, stopping turn", "provider", modelInfo.Provider, "conn", connID)
+						var ue *upstreamError
+						errors.As(fwdErr, &ue)
+						lastErr = ue
+						break
+					}
+					var ue *upstreamError
+					if errors.As(fwdErr, &ue) {
+						// A 410 naming a dead model is a routing fact, not an account
+						// fault: every connection to this provider answers the same
+						// way. Record it, then leave this entry for the next combo
+						// model (#179).
+						//
+						// The connection is deliberately NOT added to excludeIDs:
+						// that list spans the whole pass, so excluding it here would
+						// starve every later entry on a single-account provider —
+						// exactly the case the failover exists to rescue. The model
+						// lock recordModelDeprecation writes is per provider/model,
+						// which is the scope that actually matters.
+						if providers.IsModelDeprecation(ue.StatusCode, ue.Body) {
+							h.recordModelDeprecation(ctx, modelInfo.Provider, modelInfo.Model, connID, ue)
+							retry.note(ue)
 							lastErr = ue
 							break
 						}
-						var ue *upstreamError
-						if errors.As(fwdErr, &ue) {
-							// A 410 naming a dead model is a routing fact, not an account
-							// fault: every connection to this provider answers the same
-							// way. Record it, then leave this entry for the next combo
-							// model (#179).
-							//
-							// The connection is deliberately NOT added to excludeIDs:
-							// that list spans the whole pass, so excluding it here would
-							// starve every later entry on a single-account provider —
-							// exactly the case the failover exists to rescue. The model
-							// lock recordModelDeprecation writes is per provider/model,
-							// which is the scope that actually matters.
-							if providers.IsModelDeprecation(ue.StatusCode, ue.Body) {
-								h.recordModelDeprecation(ctx, modelInfo.Provider, modelInfo.Model, connID, ue)
-								retry.note(ue)
-								lastErr = ue
-								break
-							}
-							// The prompt does not fit this model's context window. That
-							// is a request/model mismatch, not an account fault: every
-							// other account on this provider has the same window, so
-							// cooling this one down would hide a working credential and
-							// re-send the same oversized prompt on the next request.
-							// Spend no more connections on this model either — the next
-							// combo member with a bigger window is the only thing that
-							// can serve the turn.
-							if providers.IsModelFitError(ue.StatusCode, string(ue.Body)) {
-								log.Info("combo", "request exceeds model context, advancing to next combo model", "provider", modelInfo.Provider, "model", modelInfo.Model, "conn", connID)
-								retry.note(ue)
-								lastErr = ue
-								break
-							}
+						// The prompt does not fit this model's context window. That
+						// is a request/model mismatch, not an account fault: every
+						// other account on this provider has the same window, so
+						// cooling this one down would hide a working credential and
+						// re-send the same oversized prompt on the next request.
+						// Spend no more connections on this model either — the next
+						// combo member with a bigger window is the only thing that
+						// can serve the turn.
+						if !providers.ClassifyError(ue.StatusCode, extractErrorText(ue.Body), 0).ShouldFallback &&
+							providers.IsModelFitError(ue.StatusCode, string(ue.Body)) {
+							log.Info("combo", "request exceeds model context, advancing to next combo model", "provider", modelInfo.Provider, "model", modelInfo.Model, "conn", connID)
+							retry.note(ue)
+							lastErr = ue
+							break
+						}
 						if providers.RetryableStatusCodes[ue.StatusCode] {
 							h.comboLockRetryable(ctx, &excludeIDs, connID, modelInfo.Provider, modelInfo.Model, ue)
 						}
@@ -850,35 +851,36 @@ func (h *ChatHandler) handleMessagesComboFallback(ctx context.Context, w http.Re
 					if isGuardrailBlock(fwdErr) {
 						// See the chat branch above: a policy refusal stops the
 						// turn instead of being replayed against the next model.
-log.Warn("combo", "guardrail block, stopping turn", "provider", modelInfo.Provider, "conn", connID)
-							var blocked *upstreamError
-							errors.As(fwdErr, &blocked)
-							lastErr = blocked
+						log.Warn("combo", "guardrail block, stopping turn", "provider", modelInfo.Provider, "conn", connID)
+						var blocked *upstreamError
+						errors.As(fwdErr, &blocked)
+						lastErr = blocked
+						break
+					}
+					var ue *upstreamError
+					if errors.As(fwdErr, &ue) {
+						// Same contract as the OpenAI loop: a 410 naming a dead
+						// model is a provider-wide fact, so it is recorded and
+						// the next combo entry is tried (#179). The connection
+						// stays out of excludeIDs — see the OpenAI loop: that
+						// list spans the pass, and a single-account provider
+						// would have nothing left to fail over to.
+						if providers.IsModelDeprecation(ue.StatusCode, ue.Body) {
+							h.recordModelDeprecation(ctx, modelInfo.Provider, modelInfo.Model, connID, ue)
+							retry.note(ue)
+							lastErr = ue
 							break
 						}
-						var ue *upstreamError
-						if errors.As(fwdErr, &ue) {
-							// Same contract as the OpenAI loop: a 410 naming a dead
-							// model is a provider-wide fact, so it is recorded and
-							// the next combo entry is tried (#179). The connection
-							// stays out of excludeIDs — see the OpenAI loop: that
-							// list spans the pass, and a single-account provider
-							// would have nothing left to fail over to.
-							if providers.IsModelDeprecation(ue.StatusCode, ue.Body) {
-								h.recordModelDeprecation(ctx, modelInfo.Provider, modelInfo.Model, connID, ue)
-								retry.note(ue)
-								lastErr = ue
-								break
-							}
-							// Same contract as the OpenAI loop: an oversized prompt
-							// is a request/model mismatch, so this entry is abandoned
-							// for the next combo member without cooling the account.
-							if providers.IsModelFitError(ue.StatusCode, string(ue.Body)) {
-								log.Info("combo", "request exceeds model context, advancing to next combo model", "provider", modelInfo.Provider, "model", modelInfo.Model, "conn", connID)
-								retry.note(ue)
-								lastErr = ue
-								break
-							}
+						// Same contract as the OpenAI loop: an oversized prompt
+						// is a request/model mismatch, so this entry is abandoned
+						// for the next combo member without cooling the account.
+						if !providers.ClassifyError(ue.StatusCode, extractErrorText(ue.Body), 0).ShouldFallback &&
+							providers.IsModelFitError(ue.StatusCode, string(ue.Body)) {
+							log.Info("combo", "request exceeds model context, advancing to next combo model", "provider", modelInfo.Provider, "model", modelInfo.Model, "conn", connID)
+							retry.note(ue)
+							lastErr = ue
+							break
+						}
 						if providers.RetryableStatusCodes[ue.StatusCode] {
 							h.comboLockRetryable(ctx, &excludeIDs, connID, modelInfo.Provider, modelInfo.Model, ue)
 						}

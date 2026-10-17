@@ -216,3 +216,41 @@ func TestComboContextOverflow_Unrelated4xxStillCooldown(t *testing.T) {
 		t.Errorf("upstream received %d requests, want an unrelated 400 to keep walking its connections", got)
 	}
 }
+
+// TestComboContextOverflow_429WithTokenPhrasingStillCoolsDown asserts that an
+// account-scoped 429 mentioning input tokens (e.g. rate limit per minute) does
+// NOT get mistaken for a model-fit error and is properly cooled down.
+func TestComboContextOverflow_429WithTokenPhrasingStillCoolsDown(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusTooManyRequests)
+		w.Write([]byte(`{"error":{"message":"Too many input tokens per minute. Please retry in 60s.","type":"rate_limit_error","code":429}}`))
+	}))
+	defer srv.Close()
+
+	models := []string{"deepseek/deepseek-chat", "deepseek/deepseek-reasoner"}
+	database, cleanup := overflowComboEnv(t, srv.URL, models)
+	defer cleanup()
+
+	h := NewChatHandler(db.NewRepo(database))
+	rec := httptest.NewRecorder()
+	h.handleComboFallback(context.Background(), rec,
+		[]byte(`{"model":"combo-fit","messages":[{"role":"user","content":"hi"}]}`),
+		models, "fallback", false, false, "combo-fit", 1)
+
+	if rec.Code != http.StatusTooManyRequests {
+		t.Errorf("client status = %d, want 429", rec.Code)
+	}
+
+	// Verify that the connection or model was locked/cooled down
+	repo := db.NewRepo(database)
+	locked, err := repo.IsConnectionModelLocked("conn-small", "deepseek-chat")
+	if err != nil {
+		t.Fatalf("IsConnectionModelLocked error: %v", err)
+	}
+	if !locked {
+		t.Errorf("expected deepseek-chat to be model-locked after 429")
+	}
+}

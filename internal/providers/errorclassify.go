@@ -99,10 +99,11 @@ var ModelFitErrorPatterns = []string{
 // connection down, which would hide a working account and hand the request to a
 // provider that may be no better.
 //
-// Only 4xx qualifies: a 5xx carrying the same wording is a server fault, and a
-// 429 is a quota limit regardless of the message.
+// Only 4xx qualifies (excluding 401/402/403/404/429 which remain account-scoped):
+// a 5xx carrying the same wording is a server fault, and a 429 is a quota
+// limit regardless of the message.
 func IsModelFitError(statusCode int, errorText string) bool {
-	if statusCode < 400 || statusCode >= 500 {
+	if statusCode < 400 || statusCode >= 500 || statusCode == 401 || statusCode == 402 || statusCode == 403 || statusCode == 404 || statusCode == 429 {
 		return false
 	}
 	lower := strings.ToLower(errorText)
