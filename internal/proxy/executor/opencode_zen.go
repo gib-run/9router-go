@@ -292,13 +292,16 @@ func forwardZenChat(w http.ResponseWriter, req *Request, cleanModel, sourceForma
 	}
 	cfg.StaticHeaders = zenHeaders(&cfg, req.SessionID, true, free)
 
-	var resp *http.Response
-	var err error
-	if free {
-		resp, err = forwardOpencodeRequest(reqCtx(req), req.Client, &cfg, req.APIKey, body, true)
-	} else {
-		resp, err = proxy.ForwardOpenAI(reqCtx(req), req.Client, &cfg, req.APIKey, body, true)
-	}
+	// The retry wraps the transport choice: a repeat must re-dial through
+	// whichever stack the first attempt used, because the free tier only
+	// answers the stealth client and a plain-HTTP repeat would fail for a
+	// different reason than the refusal it is retrying.
+	resp, err := forwardOpenCode(reqCtx(req), func() (*http.Response, error) {
+		if free {
+			return forwardOpencodeRequest(reqCtx(req), req.Client, &cfg, req.APIKey, body, true)
+		}
+		return proxy.ForwardOpenAI(reqCtx(req), req.Client, &cfg, req.APIKey, body, true)
+	})
 	if err != nil {
 		return fmt.Errorf("ForwardOpencodeZen: %w", err)
 	}
@@ -367,12 +370,12 @@ func forwardZenResponses(w http.ResponseWriter, req *Request, cleanModel, source
 	cfg.StaticHeaders = zenHeaders(&cfg, req.SessionID, req.IsStream, free)
 
 	ctx := reqCtx(req)
-	var resp *http.Response
-	if free {
-		resp, err = forwardOpencodeRequest(ctx, req.Client, &cfg, req.APIKey, body, req.IsStream)
-	} else {
-		resp, err = proxy.ForwardOpenAI(ctx, req.Client, &cfg, req.APIKey, body, req.IsStream)
-	}
+	resp, err := forwardOpenCode(ctx, func() (*http.Response, error) {
+		if free {
+			return forwardOpencodeRequest(ctx, req.Client, &cfg, req.APIKey, body, req.IsStream)
+		}
+		return proxy.ForwardOpenAI(ctx, req.Client, &cfg, req.APIKey, body, req.IsStream)
+	})
 	if err != nil {
 		return fmt.Errorf("ForwardOpencodeZen (responses): %w", err)
 	}

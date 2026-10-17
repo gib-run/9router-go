@@ -23,12 +23,15 @@ The gateway now reports the condition instead of forwarding it:
   into an outage by skipping it for later requests. Scoped to the OpenCode
   providers; every other provider's 403 handling is unchanged.
 
-One attempt only, deliberately. The gate is refusing on *identity*, and the
-maintainer's measurement in #367 is that it refuses every identity variant
-while closed, so a retry cycle only adds latency to a request that cannot
-succeed — and slows the router's advance to the next connection. (An earlier
-draft of this PR carried a 5-attempt retry loop with jittered backoff; it was
-dropped on review, so that version's fragment text is not carried forward.)
+**One retry, not a loop.** The gate *does* occasionally refuse a request whose
+fingerprint is correct and serve the same request when repeated, so a single
+repeat recovers that blip — verified end to end: first attempt refused, retry
+served, client gets the completion. But while the gate is refusing on identity
+(#367 measured every client variant refused) no number of attempts succeeds, so
+the budget stops at two: worst case ~200 ms added, against the ~1.5 s a
+5-attempt cycle cost. That cycle was in an earlier draft of this branch and was
+replaced on review. Only the `FreeTierError` refusal is repeated — a quota 403
+fails identically forever, and 401/429/5xx keep their existing handling.
 
 Two related defects were found by testing rather than reading:
 
