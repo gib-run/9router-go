@@ -72,7 +72,7 @@ func TestInjectPrefixSystemPrompt(t *testing.T) {
 			name: "responses inserts system item at index 0",
 			body: `{"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"hi"}]}]}`,
 			text: "HEAD",
-want:         []string{`"text":"HEAD"`, `"role":"system"`, `"role":"user"`},
+			want: []string{`"text":"HEAD"`, `"role":"system"`, `"role":"user"`},
 		},
 		{
 			name: "blank text is a no-op",

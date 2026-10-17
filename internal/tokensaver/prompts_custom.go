@@ -142,7 +142,11 @@ func injectChatSlot(req map[string]any, arr []any, text string, s slot) ([]byte,
 		}
 	}
 	if target < 0 {
-		req["messages"] = append([]any{map[string]any{"role": "system", "content": text}}, clone...)
+		if s == slotPrefix {
+			req["messages"] = append([]any{map[string]any{"role": "system", "content": text}}, clone...)
+		} else {
+			req["messages"] = append(clone, map[string]any{"role": "system", "content": text})
+		}
 		return marshalBody(req)
 	}
 

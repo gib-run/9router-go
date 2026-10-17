@@ -186,7 +186,7 @@
         stickyRoundRobinLimit,
         comboStrategy,
         forceFallback,
-        enableSystemPrompt,
+        systemPromptEnabled: enableSystemPrompt,
         systemPromptPrefix,
         systemPromptSuffix,
         authMode,
