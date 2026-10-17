@@ -1615,7 +1615,7 @@ func ForwardOpencodeGo(w http.ResponseWriter, req *Request) error {
 		if cleanModel != "" {
 			reqGoMap["model"] = cleanModel
 		}
-		if strings.Contains(strings.ToLower(cleanModel), "deepseek") {
+		if strings.HasPrefix(strings.ToLower(cleanModel), "deepseek") {
 			delete(reqGoMap, "response_format")
 		}
 		// Deterministic marshaling keeps the serialized request prefix
