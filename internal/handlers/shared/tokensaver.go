@@ -43,12 +43,12 @@ type TokenSaverConfig struct {
 // NewTokenSaverConfig creates config with initial values.
 func NewTokenSaverConfig(rtk, caveman, ponytail bool) *TokenSaverConfig {
 	return &TokenSaverConfig{
-		rtkEnabled:              rtk,
-		rtkMode:                 "simple",
-		rtkIntensity:            "standard",
-		rtkMaxLines:             100,
-		rtkMaxChars:             8000,
-		rtkDeduplicate:          true,
+		rtkEnabled:     rtk,
+		rtkMode:        "simple",
+		rtkIntensity:   "standard",
+		rtkMaxLines:    100,
+		rtkMaxChars:    8000,
+		rtkDeduplicate: true,
 		rtkCategories: map[string]bool{
 			"git":     true,
 			"build":   true,

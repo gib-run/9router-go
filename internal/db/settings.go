@@ -95,12 +95,12 @@ type SettingsData struct {
 // DefaultSettings returns fallback settings.
 func DefaultSettings() *SettingsData {
 	return &SettingsData{
-		RTKEnabled:        true,
-		RTKMode:           "simple",
-		RTKIntensity:      "standard",
-		RTKMaxLines:       100,
-		RTKMaxChars:       8000,
-		RTKDeduplicate:    true,
+		RTKEnabled:     true,
+		RTKMode:        "simple",
+		RTKIntensity:   "standard",
+		RTKMaxLines:    100,
+		RTKMaxChars:    8000,
+		RTKDeduplicate: true,
 		RTKCategories: map[string]bool{
 			"git":     true,
 			"build":   true,
@@ -121,16 +121,16 @@ func DefaultSettings() *SettingsData {
 		PonytailLevel:           "full",
 		ADHDEnabled:             false,
 		ADHDLevel:               "full",
-		SystemPromptEnabled:      false,
-		SystemPromptPrefix:       "",
-		SystemPromptSuffix:       "",
-		HeadroomUrl:       "http://localhost:8787",
-		HeadroomKompress:  true,
-		HeadroomTimeoutMs: 3000,
-		SemanticCacheEnabled:     false,
-		SemanticCacheTTL:         1440,
-		SemanticCacheMaxEntries:  1000,
-		AutoUpdate:        false,
+		SystemPromptEnabled:     false,
+		SystemPromptPrefix:      "",
+		SystemPromptSuffix:      "",
+		HeadroomUrl:             "http://localhost:8787",
+		HeadroomKompress:        true,
+		HeadroomTimeoutMs:       3000,
+		SemanticCacheEnabled:    false,
+		SemanticCacheTTL:        1440,
+		SemanticCacheMaxEntries: 1000,
+		AutoUpdate:              false,
 		CapacityAdapter: map[string]CapacityAdapterEntry{
 			"vision":     {Enabled: true, RoundRobin: false, Models: []string{}},
 			"pdf":        {Enabled: false, RoundRobin: false, Models: []string{}},
@@ -637,7 +637,6 @@ func settingsInt(v any) int {
 	}
 	return 0
 }
-
 
 // stringMap coerces a decoded JSON value into map[string]string, skipping
 // anything that is not a string. The settings blob is hand-editable through
