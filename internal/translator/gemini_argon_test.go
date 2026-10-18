@@ -82,30 +82,62 @@ func TestGemini4Argon_SamplingParamsStripped(t *testing.T) {
 }
 
 func TestNormalizeGeminiContents_FunctionResponseLast(t *testing.T) {
+	// Test case 1: Gemini-4-argon model merges adjacent user turns and moves FunctionResponse last
 	contents := []GeminiContent{
 		{
 			Role: "user",
 			Parts: []GeminiPart{
-				{Text: "some text before"},
-				{FunctionResponse: &GeminiFunctionResp{Name: "test_func"}},
+				{FunctionResponse: &GeminiFunctionResp{Name: "func1"}},
+				{Text: "text in first turn"},
+			},
+		},
+		{
+			Role: "user",
+			Parts: []GeminiPart{
+				{FunctionResponse: &GeminiFunctionResp{Name: "func2"}},
+				{Text: "text in second turn"},
 			},
 		},
 	}
 
-	normalized := NormalizeGeminiContents(contents)
+	normalized := NormalizeGeminiContentsForModel(contents, "gemini-4-argon")
 	if len(normalized) == 0 {
 		t.Fatalf("expected normalized contents")
 	}
 
-	parts := normalized[0].Parts
-	if len(parts) != 2 {
-		t.Fatalf("expected 2 parts, got %d", len(parts))
+	// Should be merged into a single user turn (plus guard turns if bracketed, but since starts with user, just 1 or bracketed)
+	// Let's inspect parts
+	var allParts []GeminiPart
+	for _, c := range normalized {
+		allParts = append(allParts, c.Parts...)
 	}
 
-	if parts[0].FunctionResponse != nil {
-		t.Errorf("expected functionResponse to be last, but it was first")
+	// All Text parts should come first, all FunctionResponse parts should come last
+	textSeen := false
+	for _, p := range allParts {
+		if p.FunctionResponse != nil {
+			textSeen = true
+		} else if p.Text != "" && p.Text != "..." {
+			if textSeen {
+				t.Errorf("found Text part after FunctionResponse for Gemini 4 model")
+			}
+		}
 	}
-	if parts[1].FunctionResponse == nil {
-		t.Errorf("expected functionResponse to be last")
+
+	// Test case 2: Non-Gemini-4 model keeps original order untouched
+	contentsNonGemini4 := []GeminiContent{
+		{
+			Role: "user",
+			Parts: []GeminiPart{
+				{FunctionResponse: &GeminiFunctionResp{Name: "func1"}},
+				{Text: "text first"},
+			},
+		},
+	}
+	normalizedNon4 := NormalizeGeminiContentsForModel(contentsNonGemini4, "gemini-3.8-flash")
+	if len(normalizedNon4) > 0 && len(normalizedNon4[0].Parts) >= 2 {
+		if normalizedNon4[0].Parts[0].FunctionResponse == nil {
+			t.Errorf("expected non-Gemini-4 model to keep FunctionResponse first when specified")
+		}
 	}
 }

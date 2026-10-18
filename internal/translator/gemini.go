@@ -546,7 +546,7 @@ func (u *toolCallIDUniquifier) next(id string) string {
 // readability and the call's index for uniqueness — two parts in one chunk are
 // emitted inside a single clock tick, so UnixNano alone collides and the client
 // cannot match a result to its call.
-// Parity with `functionCall.id || \`${name}-${Date.now()}-${index}\“ in
+// Parity with `functionCall.id || \`${name}-${Date.now()}-${index}\`` in
 // open-sse/translator/response/gemini-to-openai.js.
 func geminiToolCallID(geminiID, name string, index int) string {
 	if geminiID != "" {
@@ -1053,11 +1053,11 @@ func NormalizeGeminiContentsForModel(contents []GeminiContent, model string) []G
 			continue
 		}
 		if len(out) > 0 && out[len(out)-1].Role == c.Role {
-			parts := validParts
+			merged := append(out[len(out)-1].Parts, validParts...)
 			if c.Role == "user" && isGemini4 {
-				parts = moveFunctionResponsesLast(parts)
+				merged = moveFunctionResponsesLast(merged)
 			}
-			out[len(out)-1].Parts = append(out[len(out)-1].Parts, parts...)
+			out[len(out)-1].Parts = merged
 		} else {
 			parts := validParts
 			if c.Role == "user" && isGemini4 {
