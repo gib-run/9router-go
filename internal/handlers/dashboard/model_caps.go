@@ -66,14 +66,32 @@ func (h *DashboardHandler) HandleGetModelCaps(w http.ResponseWriter, r *http.Req
 
 	resolved := providers.ResolveAlias(provider)
 	models := providers.GetProviderModels(resolved)
-	if len(models) == 0 {
-		if custom := h.customModelCaps(provider, resolved); len(custom) > 0 {
-			handlerutil.WriteJSON(w, http.StatusOK, map[string]any{
-				"provider": provider,
-				"caps":     custom,
-			})
-			return
+	caps := make(map[string]modelCaps, len(models))
+	for _, model := range models {
+		detail := providers.GetCapabilitiesDetailForModel(resolved, model)
+		entry := modelCaps{
+			Vision:        detail.Vision,
+			Search:        detail.Search,
+			Reasoning:     detail.Reasoning,
+			ContextWindow: detail.ContextWindow,
+			MaxOutput:     detail.MaxOutput,
+			Free:          isModelFree(resolved, model),
 		}
+		if levels := providers.GetThinkingLevels(resolved, model); levels != nil {
+			entry.ThinkingLevels = levels
+		}
+		caps[model] = entry
+	}
+
+	if custom := h.customModelCaps(provider, resolved); len(custom) > 0 {
+		for id, cEntry := range custom {
+			if _, exists := caps[id]; !exists {
+				caps[id] = cEntry
+			}
+		}
+	}
+
+	if len(caps) == 0 {
 		if strings.HasPrefix(provider, "openai-compatible") || strings.HasPrefix(provider, "anthropic-compatible") {
 			handlerutil.WriteJSON(w, http.StatusOK, map[string]any{
 				"provider": provider,
@@ -92,23 +110,6 @@ func (h *DashboardHandler) HandleGetModelCaps(w http.ResponseWriter, r *http.Req
 		}
 		handlerutil.WriteJSONError(w, http.StatusNotFound, "unknown provider or no static models")
 		return
-	}
-
-	caps := make(map[string]modelCaps, len(models))
-	for _, model := range models {
-		detail := providers.GetCapabilitiesDetailForModel(resolved, model)
-		entry := modelCaps{
-			Vision:        detail.Vision,
-			Search:        detail.Search,
-			Reasoning:     detail.Reasoning,
-			ContextWindow: detail.ContextWindow,
-			MaxOutput:     detail.MaxOutput,
-			Free:          isModelFree(resolved, model),
-		}
-		if levels := providers.GetThinkingLevels(resolved, model); levels != nil {
-			entry.ThinkingLevels = levels
-		}
-		caps[model] = entry
 	}
 
 	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{

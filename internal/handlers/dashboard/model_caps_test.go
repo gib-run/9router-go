@@ -249,3 +249,52 @@ func TestIsModelFree_ThinkingSuffix(t *testing.T) {
 		})
 	}
 }
+
+func TestHandleGetModelCaps_CustomModelMergeAndStaticPrecedence(t *testing.T) {
+	repo, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	// Seed a custom imported free model with -free suffix for antigravity-zen (alias opencode-zen)
+	if err := repo.SetKV("customModels", "opencode-zen|custom-flash-free|llm",
+		`{"providerAlias":"opencode-zen","id":"custom-flash-free","type":"llm","name":"custom-flash-free"}`); err != nil {
+		t.Fatalf("seed custom model: %v", err)
+	}
+
+	// Seed a custom model whose ID collides with a static catalog model (e.g. mimo-v2.6-flash-free)
+	if err := repo.SetKV("customModels", "opencode-zen|mimo-v2.6-flash-free|llm",
+		`{"providerAlias":"opencode-zen","id":"mimo-v2.6-flash-free","type":"llm","name":"overridden-name"}`); err != nil {
+		t.Fatalf("seed colliding custom model: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/models/caps?provider=opencode-zen", nil)
+	rec := httptest.NewRecorder()
+	setupTestRouter(repo).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var body struct {
+		Caps map[string]modelCaps `json:"caps"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal caps response: %v", err)
+	}
+
+	// 1. Proves imported model with -free suffix appears in caps map with Free = true
+	customEntry, ok := body.Caps["custom-flash-free"]
+	if !ok {
+		t.Fatal("imported custom model 'custom-flash-free' missing from caps map")
+	}
+	if !customEntry.Free {
+		t.Error("imported custom model 'custom-flash-free' expected Free = true")
+	}
+
+	// 2. Proves static catalog entries are not overwritten by custom entries
+	staticEntry, ok := body.Caps["mimo-v2.6-flash-free"]
+	if !ok {
+		t.Fatal("static model 'mimo-v2.6-flash-free' missing from caps map")
+	}
+	if !staticEntry.Free {
+		t.Error("static catalog entry 'mimo-v2.6-flash-free' should remain free")
+	}
+}
