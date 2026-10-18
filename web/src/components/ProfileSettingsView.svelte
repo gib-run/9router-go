@@ -200,6 +200,23 @@
     if (saveHintTimer) clearTimeout(saveHintTimer)
   })
 
+  /**
+   * Any edit in the settings form raises the save reminder. Controls that save
+   * themselves opt out with data-save-hint="off": the Display card, whose
+   * preferences live in localStorage, the password form, the backup file
+   * picker, and the backup password dialog.
+   *
+   * The switches are <button role="switch">, so they emit click rather than
+   * input/change; every other button in the form either saves on its own or
+   * opens a dialog, so only a switch click counts.
+   */
+  function handleSettingsInput(event: Event) {
+    const target = event.target as HTMLElement | null
+    if (target?.closest('[data-save-hint="off"]')) return
+    if (event.type === 'click' && !target?.closest('button[role="switch"]')) return
+    markUnsaved()
+  }
+
   async function handleSaveAll() {
     isSavingSettings = true
     saveSuccess = false
@@ -461,7 +478,12 @@
     </button>
   </div>
 
-  <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+  <div
+    class="grid grid-cols-1 lg:grid-cols-2 gap-5"
+    oninput={handleSettingsInput}
+    onchange={handleSettingsInput}
+    onclick={handleSettingsInput}
+  >
     <!-- SECTION: Display preferences (localStorage-backed, not saved server-side) -->
     <Card padding="md" class="space-y-4">
       <div class="flex items-center justify-between pb-2 border-b border-border">
@@ -476,15 +498,17 @@
           <p class="font-semibold text-text-main">Unit abbreviation</p>
           <p class="text-[11px] text-text-subtle">Large numbers as 亿/万 (zh) or M/B (en); off → full numbers</p>
         </div>
-        <Toggle
-          checked={compactUnits}
-          size="sm"
-          label="Unit abbreviation"
-          onChange={(val: boolean) => {
-            setCompactUnits(val)
-            compactUnits = isCompactUnitsEnabled()
-          }}
-        />
+        <div data-save-hint="off">
+          <Toggle
+            checked={compactUnits}
+            size="sm"
+            label="Unit abbreviation"
+            onChange={(val: boolean) => {
+              setCompactUnits(val)
+              compactUnits = isCompactUnitsEnabled()
+            }}
+          />
+        </div>
       </div>
     </Card>
     <!-- SECTION 1: Runtime Storage -->
@@ -531,6 +555,7 @@
 
           <input
             type="file"
+            data-save-hint="off"
             accept=".zip,.json,application/zip,application/json"
             bind:this={fileInput}
             onchange={handleFileSelected}
@@ -599,7 +624,7 @@
           </button>
 
           {#if showPasswordFields}
-            <form onsubmit={handleUpdatePassword} class="space-y-2.5 pt-3">
+            <form onsubmit={handleUpdatePassword} class="space-y-2.5 pt-3" data-save-hint="off">
               {#if passwordErrorMessage}
                 <div class="p-2.5 rounded-lg bg-danger/10 border border-danger/20 text-red-600 dark:text-red-400 text-[11px]">
                   {passwordErrorMessage}
@@ -1003,10 +1028,7 @@
                   checked={!hiddenNav.includes(entry.id)}
                   size="sm"
                   label={entry.label}
-                  onChange={(val) => {
-                    hiddenNav = setNavVisible(hiddenNav, entry.id, val)
-                    markUnsaved()
-                  }}
+                  onChange={(val) => (hiddenNav = setNavVisible(hiddenNav, entry.id, val))}
                 />
               </div>
 
@@ -1020,10 +1042,7 @@
                         size="sm"
                         disabled={hiddenNav.includes(entry.id)}
                         label={child.label}
-                        onChange={(val) => {
-                          hiddenNav = setNavVisible(hiddenNav, child.id, val)
-                          markUnsaved()
-                        }}
+                        onChange={(val) => (hiddenNav = setNavVisible(hiddenNav, child.id, val))}
                       />
                     </div>
                   {/each}
@@ -1057,7 +1076,7 @@
       title={pendingImportFile ? 'Confirm Import' : 'Confirm Download'}
       size="sm"
     >
-      <div class="space-y-3">
+      <div class="space-y-3" data-save-hint="off">
         <p class="text-text-muted">
           {pendingImportFile
             ? `Import "${pendingImportFile.name}"? This will overwrite existing server data.`

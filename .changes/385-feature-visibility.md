@@ -8,9 +8,11 @@
   **Plans** hidden, because most operators open neither. Saving an explicit empty list
   restores every entry: only an absent or unreadable stored value falls back to the
   defaults.
-- **Save reminder.** A switch is not saved until the operator presses Save, so flipping
-  one raises a floating "Unsaved changes — Save" button for four seconds. It clears on a
-  successful save and on unmount.
+- **Save reminder.** Editing anything in the settings form raises a floating
+  "Unsaved changes — Save" button for four seconds, cleared on a successful save and on
+  unmount. Controls that persist on their own opt out with `data-save-hint="off"`: the
+  Display card (localStorage), the password form, the backup file picker and the backup
+  password dialog.
 - **Storage.** `settings.navVisibility.hidden` (a list of entry ids) through the existing
   `GET/PUT /api/settings`, so it survives a reload, travels with the database
   export/import, and applies to any browser.
