@@ -117,9 +117,6 @@ func (h *MediaHandler) HandleEmbeddings(w http.ResponseWriter, r *http.Request) 
 	}
 
 	embeddingsURL := buildEmbeddingsURL(providerCfg.BaseURL)
-	if strings.Contains(embeddingsURL, "api.githubcopilot.com") && !strings.Contains(embeddingsURL, "/embeddings") {
-		embeddingsURL = "https://api.githubcopilot.com/embeddings"
-	}
 	finalBody := handlerutil.UpdateModelInBody(body, modelInfo.Model)
 
 	req, err := http.NewRequestWithContext(r.Context(), "POST", embeddingsURL, strings.NewReader(string(finalBody)))
