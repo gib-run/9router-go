@@ -419,10 +419,8 @@ func TestIsOpencodeFreeModel(t *testing.T) {
 		model string
 		want  bool
 	}{
-		// Free despite the missing "-free" suffix; the curated catalog is the
-		// only source of truth for it (see model_formats_test.go).
-		{"big-pickle", true},
-		{"big-pickle(high)", true},
+		{"big-pickle", false},
+		{"big-pickle(high)", false},
 		{"longcat-2.5-preview-free", true},
 		{"longcat-2.5-preview-free(thinking)", true},
 		{"deepseek-v4-flash-free", true},

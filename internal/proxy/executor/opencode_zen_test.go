@@ -326,21 +326,17 @@ func TestNormalizeZenResponsesBody_ReasoningShapes(t *testing.T) {
 	}
 }
 
-// Paid ids stay on the keyed /zen/v1 lane with the v1 identity.
-//
-// big-pickle is deliberately NOT here. It is free — billed at zero in
-// pricing.KnownFreeModels, and confirmed live: a keyless request to
-// /inference/v1/chat/completions for it answers 200 with a completion. It
-// carries no "-free" suffix, so neither the suffix rule nor a bare paid
-// assumption classifies it correctly; the curated openCodeFreeTierModels entry
-// does. That entry is also why the -free suffix rule added for #327 cannot
-// reach it — the map is consulted first.
+// Paid ids stay on the keyed /zen/v1 lane with the v1 identity — including
+// big-pickle, which has no live 403 evidence and the lane table carries as
+// paid chat, so it must not be swept into the inference gate. The -free suffix
+// rule added for #327 must not reach a bare paid id like this one.
 func TestForwardOpencodeZen_KeyedLaneStaysOnZenV1(t *testing.T) {
 	tests := []struct {
 		model string
 		want  string
 		reply func(w http.ResponseWriter)
 	}{
+		{"big-pickle", "/zen/v1/chat/completions", zenChatReply},
 		{"deepseek-v4-pro", "/zen/v1/chat/completions", zenChatReply},
 		{"grok-4.6", "/zen/v1/responses", zenResponsesReply},
 	}
@@ -403,7 +399,7 @@ func TestZenShapedBodyFollowsTheDestinationGate(t *testing.T) {
 	client := []byte(`{"model":"x","messages":[{"role":"user","content":"hi"}],"tools":[{"type":"function","function":{"name":"Bash","parameters":{"type":"object"}}}]}`)
 
 	t.Run("free id gets the CLI 2.x fingerprint", func(t *testing.T) {
-		out, _ := zenShapedBody(client, "big-pickle", true)
+		out, _ := zenShapedBody(client, "deepseek-v4-flash-free", true)
 		var payload map[string]any
 		if err := json.Unmarshal(out, &payload); err != nil {
 			t.Fatalf("unmarshal: %v", err)
@@ -446,9 +442,6 @@ func TestForwardOpencodeZen_FreeModelTakesInferenceGate(t *testing.T) {
 	}{
 		{"deepseek-v4-flash-free", "/inference/v1/chat/completions", zenChatReply},
 		{"muse-spark-1.3-contributor-free", "/inference/v1/responses", zenResponsesReply},
-		// Free with no "-free" suffix: only the curated catalog knows, so this
-		// case is what pins it against suffix-based classification creeping in.
-		{"big-pickle", "/inference/v1/chat/completions", zenChatReply},
 	}
 	for _, tt := range tests {
 		t.Run(tt.model, func(t *testing.T) {

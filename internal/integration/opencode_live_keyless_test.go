@@ -142,7 +142,7 @@ func doLive(t *testing.T, req *http.Request) liveStatus {
 }
 
 // TestLiveOpenCode_BigPickle_KeylessGate reports whether the real free-tier
-// gate currently serves big-pickle.
+// gate currently serves a genuine free-tier id.
 //
 // It deliberately does not fail when the gate refuses. A closed or rotating free
 // tier is a fact about upstream, not a defect in this gateway, and a test that
@@ -156,7 +156,7 @@ func TestLiveOpenCode_BigPickle_KeylessGate(t *testing.T) {
 
 	// A client that declared its own capitalised tools, like Claude Code does;
 	// the shaper replaces them with the exact CLI fingerprint.
-	res := doLive(t, liveRequest(t, "big-pickle", claudeCodeToolset()))
+	res := doLive(t, liveRequest(t, "deepseek-v4-flash-free", claudeCodeToolset()))
 
 	t.Logf("POST %s", liveOpenCodeEndpoint)
 	t.Logf("status: %d", res.code)
@@ -165,9 +165,9 @@ func TestLiveOpenCode_BigPickle_KeylessGate(t *testing.T) {
 	verdict, why := classifyLive(res)
 	switch verdict {
 	case liveOK:
-		t.Logf("RESULT: big-pickle is served on the keyless inference gate")
+		t.Logf("RESULT: the free-tier id is served on the keyless inference gate")
 	case liveGateRefused:
-		t.Logf("RESULT: the gate refused big-pickle (%s). Free-tier access is not "+
+		t.Logf("RESULT: the gate refused the free-tier id (%s). Free-tier access is not "+
 			"available from this egress right now; the gateway cannot shape its way past a "+
 			"closed tier.", why)
 		if res.code == http.StatusUnauthorized {
@@ -194,7 +194,7 @@ func TestLiveOpenCode_BigPickle_Control_WithoutFingerprint(t *testing.T) {
 		t.Skipf("live OpenCode call: set %s=1 to run it against the real gate", liveOpenCodeEnv)
 	}
 
-	res := doLive(t, liveRequest(t, "big-pickle", nil))
+	res := doLive(t, liveRequest(t, "deepseek-v4-flash-free", nil))
 	t.Logf("control (no client tools) status: %d", res.code)
 	t.Logf("control (no client tools) body: %s", truncate([]byte(res.body)))
 
