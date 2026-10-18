@@ -117,6 +117,9 @@ func (h *MediaHandler) HandleEmbeddings(w http.ResponseWriter, r *http.Request) 
 	}
 
 	embeddingsURL := buildEmbeddingsURL(providerCfg.BaseURL)
+	if strings.Contains(embeddingsURL, "api.githubcopilot.com") && !strings.Contains(embeddingsURL, "/embeddings") {
+		embeddingsURL = "https://api.githubcopilot.com/embeddings"
+	}
 	finalBody := handlerutil.UpdateModelInBody(body, modelInfo.Model)
 
 	req, err := http.NewRequestWithContext(r.Context(), "POST", embeddingsURL, strings.NewReader(string(finalBody)))
@@ -127,6 +130,11 @@ func (h *MediaHandler) HandleEmbeddings(w http.ResponseWriter, r *http.Request) 
 
 	req.Header.Set(constants.HeaderContentType, constants.ContentTypeJSON)
 	handlerutil.SetAuthHeader(req, apiKey, providerCfg.AuthHeader, providerCfg.AuthScheme)
+	for k, v := range providerCfg.StaticHeaders {
+		if req.Header.Get(k) == "" {
+			req.Header.Set(k, v)
+		}
+	}
 
 	start := time.Now()
 	resp, err := h.Client.Do(req)
