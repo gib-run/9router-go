@@ -1,0 +1,336 @@
+# Per-Custom-Provider Limits + Bulk Add Models — Rencana Implementasi
+
+Status: draft rencana, belum ada kode. Ditulis 2026-10-18.
+Ruang lingkup: `providerNodes` (custom provider: `openai-compatible-*` / `anthropic-compatible-*` / `custom-embedding-*`)
+dan halaman model-nya di dashboard.
+
+Dokumen ini **bukan** port KeiRouter dan **tidak** menyentuh `docs/keirouter-port-plan.md` (F-1…F-15).
+Fitur di sini adalah ekstensi Go-only murni: upstream `decolua/9router` tidak punya limitasi per-node,
+jadi tidak ada tabrakan paritas — cukup ikut aturan `goOnlyColumns` (schema additive).
+
+---
+
+## 1. Tujuan
+
+Per **custom provider** (satu baris `providerNodes`), operator bisa menetapkan dan gateway menegakkan:
+
+| # | Limit | Satuan | Arti |
+|:--|:--|:--|:--|
+| L1 | RPM (Requests Per Minute) | req/menit | laju permintaan yang endpoint ini toleransi |
+| L2 | TPM (Tokens Per Minute) | token/menit | laju token masuk (prompt) yang endpoint ini toleransi |
+| L3 | Concurrency | permintaan paralel | jumlah permintaan serentak ke endpoint ini |
+| L4 | Lifetime quota token | token total | plafon token kumulatif (prompt+completion) sebelum node dinyatakan habis |
+| L5 | Queue timeout | ms | berapa lama permintaan boleh menunggu di antrean FIFO untuk L1/L3 |
+| L6 | Contract expiry | tanggal (RFC3339 UTC) | masa berlaku kontrak/langganan node; lewat tanggal = node tidak layak dipakai |
+
+Plus: **bulk add models** di halaman custom provider — tempel banyak ID sekaligus, dipisah spasi / koma / newline
+(pola yang sama dengan bulk add API key di `AddConnectionModal.svelte`).
+
+Non-tujuan (jangan dikerjakan di rencana ini): limit per-connection, multi-tenant per-tenant budget,
+Prometheus metric baru, rate limit per API key (sudah ada, F-1), plan tier (sudah ada, F-3).
+
+---
+
+## 2. Fakta terverifikasi (basis rencana)
+
+**Limit per key sudah ada dan bisa ditiru 1:1.**
+- `internal/middleware/ratelimit.go:23` `RateLimiter` — sliding window RPM, token bucket TPM, counter concurrency, `waitQueue` FIFO, `windowTimers`.
+- `internal/middleware/ratelimit.go:83` `NewRateLimiter(window)`; `:673` `TokenUsageReader{GetApiKeyTokenUsage(rawKey)}`; `:788` `quotaCheck`.
+- `internal/middleware/ratelimit.go:691` `RequireRateLimit(rl, defaults, usage)` — dipasang di `internal/handlers/router.go:541`, setelah `middleware.RequireApiKey` (`:540`), kunci = `apiKey.ID`.
+- Kolom `apiKeys` (Go-only): `internal/db/schema.go:284-291` → `rateLimitRPM`, `rateLimitTPM`, `rateLimitConcurrency`, `tokenQuota`, `queueTimeoutMs`; `:306` `quotaResetId`; `:297` `expiresAt` (F-14).
+- Lifetime quota diukur dari ledger, bukan counter: `internal/db/quota_reset.go:43` `ResetApiKeyQuota` (transaksi: watermark `MAX(id)` usageHistory + `UPDATE apiKeys SET quotaResetId`), `:136` `GetApiKeyTokenUsageByID`, `:182` `tokenUsageSince` (`WHERE id > ?`), `internal/db/dashboard.go:342` `GetApiKeyTokenUsage`.
+- Carryover baris ledger yang sudah di-prune: tabel `usageLedgerCarryover` (`internal/db/schema.go:430`), diisi `internal/db/usage_retention_ledger.go:527`, dibaca `internal/db/quota_reset.go:194`.
+- Expiry key ditegakkan di `internal/middleware/auth.go:64` (parse RFC3339 → tolak).
+- Editor policy di UI: `web/src/components/keys/ApiKeyPolicyModal.svelte`; API `internal/handlers/dashboard/apikeys_policy.go` dengan semantik `mergeLimit` (definisi `:204`, dipanggil `:85-105`) — `nil` = biarkan, `0` = kosongkan.
+
+**Custom provider = baris `providerNodes`.**
+- Data blob: `internal/db/providernodes.go` `ProviderNodeData{Prefix, APIType, BaseURL}` (hanya tiga field itu).
+- Repo: `GetProviderNodeByID`, `GetProviderNodeByPrefix`, `GetProviderNodePrefixMap`, `GetProviderNodes`.
+- API dashboard: `internal/handlers/dashboard/routes.go:67-71` → `GET/POST /api/provider-nodes`, `PUT/DELETE /api/provider-nodes/{id}`, `POST /api/provider-nodes/validate`.
+- Handler: `provider_nodes.go:101` create, `:192` update (**`name` dan `prefix` wajib di setiap PUT**), `:344` delete.
+- Satu node bisa punya banyak connection; connection menunjuk node lewat `provider = node.id`.
+- Identitas provider yang tercatat di ledger = **node.id** (`internal/handlers/chat/resolution.go:146,252,282` → `ModelInfo{Provider: node.ID}`), ditulis ke `usageHistory.provider` di `internal/handlers/chat/usage.go:280`. Jadi agregasi per node langsung `WHERE provider = <nodeID>`.
+- Agregat per provider sudah ada: `internal/db/usage.go:167` `UsageGroupRow`, `GetUsageGroupByProviderSince`.
+
+**Titik dispatch (tempat enforcement harus dipasang).**
+- Seleksi connection: `internal/handlers/chat/connections.go:167-272` (`getBestConnectionWithContext`), error yang sudah ada di `:255` `no active connections for provider: %s` dan `:272` `no connection for provider %s has model %s enabled`.
+- Forward ke upstream: `internal/handlers/chat/forward.go:27` `forwardRequest` (menaungi penulisan body termasuk streaming).
+- Combo: `internal/handlers/chat/combo.go` — kandidat provider bisa berubah per attempt.
+- Cooldown/kelayakan yang sudah ada: `filterConnectionsForModel`, `codexAccountServesModel`, `pinnedConnectionIneligible`, `ConnectionCooldownUntil` (`rateLimitedUntil`, `oauthLockedUntil`).
+
+**Model custom = kv scope `customModels`** (bukan kolom di providerNodes).
+- Simpan: `internal/handlers/dashboard/models.go:40` `HandleSaveCustomModel`; kunci `"<providerAlias>|<id>|<type>"` (`:63`).
+- UI: `web/src/components/connections/AddCustomModelModal.svelte` — satu ID, plus capabilities (vision/reasoning) + token limits, `stripAlias()` membuang prefiks alias.
+- Preseden bulk: `web/src/lib/bulk-add.ts` `planBulkAdd(lines, existingNames)` (pisah `|`, gap-fill nama anti-tabrakan) dipakai `AddConnectionModal.svelte` (mode single/bulk + `bulkResult {success, failed}`).
+- Klien: `web/src/api/client.ts:1132-1174` (provider node), `:1318-1344` (`getCustomModels`, `saveCustomModel`, `deleteCustomModel`).
+
+---
+
+## 3. Keputusan desain
+
+**D1 — Storage: kolom Go-only di `providerNodes`, bukan di dalam `data` JSON.**
+Alasan: blob `data` adalah bentuk yang ditulis ulang oleh create/update node dan dicerminkan ke `providerSpecificData` tiap connection (`provider_nodes.go:192` komentar handler); menaruh limit di sana berarti ikut tersalin/tertimpa dan tak bisa dibaca murah saat dispatch. Kolom nyata bisa di-`SELECT` sekali per request dan di-index.
+Ditolak: JSON di `data` (rapuh, tak ter-index), tabel baru `providerLimits` (join tambahan untuk data yang 1:1 dengan node).
+
+**D2 — 0 = kosong/unlimited, "" = tanpa expiry.** Sama persis dengan konvensi `apiKeys` (`rateLimitRPM=0` berarti tak dibatasi). Tidak ada sentinel negatif.
+
+**D3 — Dua sumbu limit yang berbeda, jangan dicampur.**
+- Limit **key** (F-1/F-3) = "berapa banyak pemanggil ini boleh menghabiskan" → hak pemanggil.
+- Limit **provider** (dokumen ini) = "berapa banyak endpoint ini sanggup menerima" → kapasitas upstream.
+Urutan: key dulu (middleware, sudah ada), provider kedua (di handler setelah resolusi). Konsekuensi yang disengaja: pemanggil yang sudah melewati limitnya sendiri ditolak **tanpa** menyentuh kuota provider — kegagalan pemanggil tidak boleh menghabiskan anggaran node.
+
+**D4 — Pakai ulang `RateLimiter` dengan kunci ber-namespace, bukan limiter kedua.**
+Map internal limiter berkunci `string`; pakai `"prov:"+nodeID` untuk scope provider. Tidak ada kode window/queue/bucket kedua, tidak ada drift semantik antara dua scope.
+Perubahan yang dibutuhkan kecil: ekspor jalur "scope key" (`Acquire`/`checkTPMOnly`/`RefundTPM` sudah menerima `key string`) + loader limit + titik pemasangan baru.
+
+**D5 — Enforcement provider TIDAK bisa jadi chi middleware.**
+Provider yang terpakai baru diketahui setelah resolusi model (alias, prefiks node, ekspansi combo — `resolution.go:146-288`, `combo.go`). Middleware berjalan sebelum body/resolusi. Jadi titik pasangnya di dalam handler chat, membungkus satu attempt dispatch, dengan `defer` release agar slot concurrency hidup selama body di-stream (`forward.go:27`).
+
+**D6 — Jebakan failover: slot harus dilepas per attempt.**
+Dalam combo/fallback, satu request bisa mencoba beberapa provider. Slot concurrency provider harus dilepas saat attempt itu berakhir (sukses, gagal, atau failover), bukan sekali di akhir request. Kalau tidak: kebocoran slot permanen dan node terkunci oleh dirinya sendiri. Wajib ada test khusus untuk ini.
+
+**D7 — Perilaku saat limit provider terlampaui: failover dulu, 429 sebagai jalan terakhir.**
+Keputusan ini dipilih Cak Helmi (2026-10-18), menggantikan usulan awal "antre lalu 429".
+- **L1/L3 (RPM, concurrency)** → **antre** di FIFO yang sama sampai `queueTimeoutMs`; lewat itu node dianggap penuh **untuk attempt ini saja**.
+- Node penuh **tidak langsung mengakhiri request**: attempt itu dicatat gagal-beralasan-limit, lalu loop dispatch/combo lanjut ke kandidat berikutnya (connection lain di provider sama, atau provider lain di combo yang sama). Hanya bila kandidat habis → `429` + `Retry-After` (diambil dari nilai terkecil antar attempt).
+- **L2 (TPM)** sama perlakuan: penghenti kandidat, bukan penghenti request. **Akuntansi (diputuskan Cak Helmi, 2026-10-18): `estimatePromptTokens(body)` dipotong di muka, lalu token completion nyata direkonsiliasi ke window berjalan saat settle** — jalur `withReservedTokens` + `RefundTPM` yang sudah ada, dan pada respons sukses rekonsiliasinya menambah, bukan hanya mengembalikan. Konsekuensinya disengaja: satu turn ber-output sangat panjang mengurangi kuota menit berjalan setelah responsnya selesai.
+- **L4 (lifetime quota)** dan **L6 (contract expiry)** beda kelas: keduanya keadaan permanen node, bukan kemacetan sesaat. Keduanya men-skip **seluruh** connection node itu sejak seleksi (`providerIneligible`), bukan failover per-attempt; bila node jadi satu-satunya kandidat → `403` bertipe.
+- Cakupan failover = **satu request**. Pelanggaran sesaat TIDAK menulis cooldown ke DB (`LockConnectionRateLimit`, `internal/db/accounts.go:108`, tidak dipanggil), supaya node sehat tidak diparkir global oleh satu burst. Yang ditulis hanya jejak debug (D7.1).
+
+**D7.1 — Jejak debug wajib pada setiap pelanggaran.**
+Empat lapis, semuanya memakai jalur yang sudah ada:
+1. **Log terstruktur** (`internal/log`), satu baris per pelanggaran, dengan field yang menjawab "provider mana, limit apa, berapa": `provider` (node id), `node` (nama node), `kind` (`rpm` | `tpm` | `concurrency` | `token_quota` | `contract`), `limit`, `observed`, `queueWaitMs`, `retryAfter`, `attempt` (indeks kandidat), `model`, `apiKeyId`.
+2. **Counter yang sudah ada**: `observ.IncRateLimitReject(scope, keyID)` (`internal/observ/metrics.go:217`) dipanggil dengan `scope="provider"`, `key=nodeID` → seri `router_rate_limit_rejects_total{scope="provider"}`. **Catatan implementasi:** `ObserveRateLimitQueueWait` masih menulis label `scope="api_key"` hardcoded (`metrics.go:232`); perlu satu parameter scope agar tunggu antrean provider terukur dan tidak salah label.
+3. **Jejak di dashboard**: `Repo.RecordConnectionScopedError(connID, model, source, 429, text, 0)` (`internal/db/accounts.go:69`) — menulis `lastError` **tanpa** memasang cooldown (berbeda dari `LockConnectionRateLimit`), jadi node-health table menampilkan penyebabnya tanpa mengunci node.
+4. **Detail di body 429 akhir**: array `attempts` (§7), supaya klien yang tidak punya akses log server tetap bisa men-debug sendiri.
+
+**D8 — API limit node terpisah dari `PUT /api/provider-nodes/{id}`.**
+Handler update yang ada mewajibkan `name`+`prefix` di setiap request (`provider_nodes.go:192-246`). Menumpangkan editor limit di sana berarti setiap simpan limit harus mengirim ulang nama dan prefiks — satu field kosong dari UI = 400. Endpoint khusus `PUT /api/provider-nodes/{id}/limits` dengan semantik `mergeLimit` (definisi `apikeys_policy.go:204`) lebih kecil dan tidak bisa merusak rename.
+
+**D9 — Bulk add models: satu request, atomik, hasil per-baris.**
+Memanggil `POST /api/models/custom` N kali dari UI membuat kegagalan setengah jalan tanpa jejak. Kirim array, diproses dalam satu transaksi, balas `{added: [...], skipped: [{id, reason}]}`. Bentuk body lama (satu model) tetap bekerja.
+
+**D10 — Capabilities/limits pada bulk berlaku untuk SEMUA ID di batch.**
+Sintaks per-baris (mis. `id vision 8192`) adalah scope creep, tidak diminta, dan membuat parser rapuh. Kalau operator butuh beda per model, tempel batch pertama, lalu tambah satu-satu.
+
+---
+
+## 4. Alur enforcement (urutan, satu arah)
+
+```mermaid
+flowchart TD
+  A[Request /v1/*] --> B[RequireApiKey<br/>auth.go: expiry key]
+  B --> C[RequireRateLimit<br/>scope: apiKey.ID]
+  C --> D[Guardrails inbound]
+  D --> E[resolveModel<br/>resolution.go]
+  E --> F[resolve plan/policy key]
+  F --> G{kandidat: satu atau combo}
+  G --> H[ambil kandidat berikutnya<br/>skip node expired / quota habis]
+  H --> I[providerScopeAcquire<br/>prov:nodeID]
+  I -->|penuh: catat + log| K{sisa kandidat?}
+  I -->|dapat slot| J[getBestConnection + forwardRequest<br/>defer release]
+  J -->|gagal lain / failover| K
+  K -->|ya| H
+  K -->|tidak| L[429 atau 403 + attempts]
+  J -->|sukses| M[Selesai: settle TPM, release concurrency]
+```
+
+Urutan cek di dalam `providerScopeAcquire` (meniru `RequireRateLimit`):
+1. L6 contract expiry → `403 provider_contract_expired` (sebelum apa pun; node mati tidak boleh memakan antrean).
+2. L4 lifetime quota → `403 provider_token_quota_exhausted`.
+3. L2 TPM → charge estimasi prompt; tolak langsung `429` bila bucket penuh.
+4. L1 RPM + L3 concurrency → `Acquire(ctx, "prov:"+id, rpm, conc, queueTimeout)`; gagal → refund TPM + `429` + `Retry-After`.
+Kegagalan di langkah 3 dan 4 **bukan** respons final: keduanya mengembalikan sinyal "kandidat ini penuh", loop dispatch mencatat pelanggaran (D7.1), lalu lanjut ke kandidat berikutnya. Respons `429` baru dibuat saat kandidat habis.
+
+Status body memakai bentuk error yang sudah dipakai limiter key (`rejectRateLimited`, `queueRetryAfter`, `queueScope`) supaya klien tidak perlu memahami dua dialek.
+
+---
+
+## 5. Skema (additive, `goOnlyColumns`)
+
+`internal/db/schema.go` — tambahkan ke `goOnlyColumns` (pola sama seperti `providerConnections` di `:270-278`):
+
+```go
+// Limit per custom provider (docs/provider-limits-plan.md). 0 = tidak dibatasi,
+// string kosong = tanpa expiry — konvensi yang sama dengan apiKeys F-1/F-14.
+{"providerNodes", "rpmLimit", "INTEGER DEFAULT 0"},
+{"providerNodes", "tpmLimit", "INTEGER DEFAULT 0"},
+{"providerNodes", "concurrencyLimit", "INTEGER DEFAULT 0"},
+{"providerNodes", "tokenQuota", "INTEGER DEFAULT 0"},
+{"providerNodes", "queueTimeoutMs", "INTEGER DEFAULT 0"},
+{"providerNodes", "quotaResetId", "INTEGER DEFAULT 0"},
+{"providerNodes", "contractExpiresAt", "TEXT DEFAULT ''"},
+```
+
+Carryover kuota provider (baris ledger yang di-prune) — tabel baru, additive:
+
+```sql
+CREATE TABLE IF NOT EXISTS providerLedgerCarryover (
+  providerId TEXT PRIMARY KEY,
+  tokens     INTEGER NOT NULL DEFAULT 0,
+  updatedAt  TEXT NOT NULL
+);
+```
+
+**Jebakan ini sudah dikerjakan di PR 1.** Pass prune (`usage_retention_ledger.go`) sekarang menulis dua dimensi carryover: `usageLedgerCarryover` per `keyId` (baris 525-533) dan `providerLedgerCarryover` per `providerId` (baris 534-542), difold dari chunk yang sama terhadap mark masing-masing (`foldProviders`, baris 433-457). Buktinya `TestPruneUsageHistory_ProviderSpendInvariant` (pemakaian node identik sebelum dan sesudah prune) dan `TestPruneUsageHistory_ProviderResetIsNotReBanked` (reset tidak di-charge dua kali). Tanpa keduanya, kuota provider **diam-diam kurang-hitung** setelah prune pertama: node tampak masih punya sisa kuota padahal sudah habis.
+
+Indeks: `usageHistory` sudah punya `idx_uh_provider` (`schema.go:149`) — cukup untuk `WHERE provider = ? AND id > ?`. Tidak ada indeks baru.
+
+---
+
+## 6. Backend — pembagian kerja per PR
+
+### PR 1 — data & repo (tanpa enforcement)
+- `internal/db/schema.go`: kolom §5 + tabel `providerLedgerCarryover`.
+- `internal/db/provider_limits.go` (baru): `ProviderLimits{RPM, TPM, Concurrency, QueueTimeoutMs, TokenQuota, QuotaResetID, ContractExpiresAt}`, `GetProviderLimits`/`ListProviderLimits`/`SetProviderLimits` (nol-value = unlimited; angka negatif dan timestamp non-RFC3339 ditolak; `quotaResetId` sengaja tidak ditulis di sini — pemiliknya `ResetProviderQuota`), plus `ProviderLimits.Expired(now)`.
+- `internal/db/provider_quota.go` (baru): `ResetProviderQuota(ctx, nodeID) (int, error)` (watermark + clear carryover dalam satu transaksi — tiru `quota_reset.go:43`), `ProviderQuotaResetID` (tiru `:136`), `ProviderTokenUsage(ctx, nodeID) (int, error)` (tiru `tokenUsageSince` `:182`: sum ledger + carryover dalam satu statement).
+- `internal/db/usage_retention_ledger.go`: carryover provider ditulis di pass prune + carryover node yang hilang dibersihkan (`loadProviderMarks`). Kalau `providerNodes` tidak ada, dimensi provider dibiarkan nil dan prune tetap jalan.
+- `internal/db/schema.go`: 7 kolom limit di `goOnlyColumns` + tabel `providerLedgerCarryover` di `usageLedgerTables`.
+- Test table-driven: round-trip kolom, `0` vs unset, negatif ditolak, timestamp dinormalkan ke UTC, reset tidak menggeser mark, prune tidak menghilangkan pemakaian.
+
+### PR 2 — enforcement laju (L1/L2/L3/L5)
+- `internal/middleware/ratelimit.go`: ekspor konstruktor scope provider (`ProviderScopeKey(nodeID)`, `CheckProvider(ctx, nodeID, limits) (release func(), reject func(...))`) — tanpa menduplikasi window/queue.
+- `internal/handlers/chat/provider_limits.go` (baru): `acquireProviderSlot(ctx, nodeID) (release func(), retryAfter time.Duration, err error)` + error bertipe untuk 429/403.
+- Pemasangan di attempt loop dispatch: `internal/handlers/chat/forward.go:27` (bungkus satu attempt) dan jalur combo `internal/handlers/chat/combo.go` (per kandidat), dengan `defer release`.
+- Test: RPM terantre & timeout → kandidat dilewati (bukan request gagal); concurrency dipegang sampai stream selesai; refund TPM saat antrean menolak; **slot dilepas saat failover** (D6); **pelanggaran memicu failover ke kandidat berikutnya, `429` hanya saat kandidat habis**; satu baris log + `router_rate_limit_rejects_total{scope="provider"}` terbit per pelanggaran (D7.1).
+- `internal/observ/metrics.go`: beri parameter scope pada `ObserveRateLimitQueueWait` (kini hardcoded `api_key`, `:236`); `IncRateLimitReject` dipakai apa adanya dengan `scope="provider"`.
+
+### PR 3 — lifetime quota (L4) + contract expiry (L6)
+- `internal/handlers/chat/connections.go`: `getBestConnectionWithContext` melewati connection milik node yang kadaluarsa atau kuotanya habis; bila tidak ada kandidat lain, kembalikan error bertipe `provider_contract_expired` / `provider_token_quota_exhausted` (bukan `no active connections`).
+- `internal/handlers/chat/forward.go`: cek L4 sebelum dispatch (403), termasuk saat node dipakai lewat prefiks alias.
+- Sumber kebenaran tunggal: satu helper `providerIneligible(nodeID) (reason string, retryAt time.Time)` dipakai seleksi **dan** dispatch, supaya keduanya tak bisa berbeda.
+- Test: node kadaluarsa di-skip walau connection aktif; node kadaluarsa satu-satunya kandidat → 403 bertipe; quota habis → 403; quota reset membuat node layak lagi.
+
+### PR 4 — API dashboard
+- `internal/handlers/dashboard/provider_nodes.go` + `routes.go`: `PUT /api/provider-nodes/{id}/limits`, `POST /api/provider-nodes/{id}/quota/reset`, dan sertakan field limit + pemakaian (`usedTokens`, `rpmUsedWindow`, `activeConcurrency`) pada `GET /api/provider-nodes`.
+- Semantik `mergeLimit` identik `apikeys_policy.go:204`: `nil` = jangan ubah, `0` = kosongkan, angka = set.
+- `internal/handlers/dashboard/settings.go:507,673` (ekspor/impor DB): sertakan kolom baru agar backup→restore tidak menghilangkan limit.
+- Test httptest: validasi angka negatif → 400; merge tidak menimpa field lain; reset quota menulis watermark.
+
+### PR 5 — UI + bulk add models
+Lihat §8.
+
+Setiap PR menambah satu fragmen `.changes/<n>-<slug>.md` (bukan `CHANGELOG.md`, §7.6 AGENTS.md), branch dari `origin/main`, dan wajib lulus `make test-integration`, `make vet-svelte`, plus gerbang portability bila `go.mod` tersentuh (di sini tidak perlu dep baru).
+
+---
+
+## 7. Kontrak API
+
+**`PUT /api/provider-nodes/{id}/limits`**
+```json
+{ "rpmLimit": 60, "tpmLimit": 90000, "concurrencyLimit": 4,
+  "tokenQuota": 5000000, "queueTimeoutMs": 15000,
+  "contractExpiresAt": "2027-01-31T00:00:00Z" }
+```
+Field absen/`null` = tidak diubah; `0` = kosongkan; `contractExpiresAt: ""` = hapus expiry.
+Respons: `{ "node": { ...ProviderNode, "limits": {...}, "usage": { "usedTokens": 123456, "quotaResetAt": null } } }`.
+Validasi: semua angka ≥ 0 (negatif → 400 dengan nama field, pola `apikeys_policy.go:107`); `contractExpiresAt` harus RFC3339 UTC (400 bila tidak bisa di-parse).
+
+**`POST /api/provider-nodes/{id}/quota/reset`** → `{ "success": true, "mark": 123456 }` (watermark id usageHistory).
+
+**`GET /api/provider-nodes`** — field baru: `limits` (rpm/tpm/concurrency/quota/queueTimeout), `contractExpiresAt`, `usage.usedTokens`, `usage.remainingTokens`, `status`: `ok` | `expired` | `quota_exhausted`.
+
+**Envelope error** (samakan dengan limiter key; `attempts` memuat satu entri per kandidat yang dilewati karena limit):
+```json
+{ "error": { "type": "rate_limit_exceeded", "scope": "provider",
+             "attempts": [ { "provider": "openai-compatible-chat-nara", "reason": "rpm",
+                             "limit": 60, "retryAfter": 12 },
+                           { "provider": "openai-compatible-chat-beta", "reason": "concurrency",
+                             "limit": 2, "retryAfter": 3 } ],
+             "retryAfter": 3 } }
+```
+Tipe khusus: `provider_contract_expired`, `provider_token_quota_exhausted` (keduanya `403`, `attempts` berisi satu entri dengan `reason: "contract"` / `"token_quota"`).
+
+---
+
+## 8. UI
+
+**Editor limit node** — `web/src/components/connections/EditCompatibleNodeModal.svelte`
+(paritas juga di `AddCompatibleNodeModal.svelte`; panel node di `ProviderDetailView.svelte` menampilkan ringkasannya).
+Form mengikuti tata letak `ApiKeyPolicyModal.svelte`: enam input bernomor, tiap field menyertakan hint "0 = tidak dibatasi",
+tanggal kontrak pakai input `type="date"` (dikonversi ke RFC3339 UTC akhir hari), dan blok read-only
+"pemakaian" (token terpakai / kuota, RPM terpakai di window berjalan, concurrency aktif) bila data dari `GET /api/provider-nodes` ada.
+Tombol simpan hanya memanggil endpoint limits (D8) — tidak mengirim `name`/`prefix`.
+
+**Bulk add models** — `AddCustomModelModal.svelte` mendapat mode `single` | `bulk`, meniru `AddConnectionModal.svelte`.
+
+`web/src/lib/bulk-models.ts` (baru, murni, ada test):
+```ts
+export interface BulkModelInput { raw: string; alias?: string }
+export interface BulkModelsResult { ids: string[]; duplicates: string[]; invalid: string[] }
+
+/** Pisah pada spasi, koma, titik-koma, dan newline; buang kosong; dedupe; buang prefiks "<alias>/". */
+export function parseModelIds(input: string, alias?: string): BulkModelsResult
+```
+Aturan parser (semuanya diuji table-driven):
+- pemisah: `/[\s,;]+/` — spasi, koma, titik-koma, newline (spesifikasi minta space/comma/newline; titik-koma ikut karena gratis dan aman);
+- trim tiap ID, buang yang kosong;
+- buang prefiks `"<alias>/"` (`stripAlias()` yang sudah ada — konsisten dengan jalur single);
+- dedupe **mempertahankan urutan** (first-wins), ID duplikat dilaporkan di `duplicates` agar operator tahu itu bukan bug;
+- tolak ID berisi karakter yang sudah ditolak jalur single (validasi server tetap otoritatif; klien hanya memberi umpan balik cepat).
+
+Hasil tampil seperti `bulkResult` di `AddConnectionModal`: `"8 ditambahkan, 2 dilewati"` + daftar alasan per ID
+(`sudah ada`, `tidak valid`). Tidak ada penambahan parsial: satu request (D9).
+
+**Klien** (`web/src/api/client.ts`): `setProviderNodeLimits(id, payload)`, `resetProviderNodeQuota(id)`,
+`saveCustomModelsBulk({ providerAlias, models: [{id, vision, reasoning, contextWindow, maxOutput}] })`.
+
+---
+
+## 9. Test & gerbang verifikasi
+
+| Area | Bukti yang harus ada |
+|:--|:--|
+| Schema | kolom muncul setelah boot di DB lama (EnsureAdditiveColumns), bukan hanya di DB baru |
+| L1/L3 | dua request paralel melebihi concurrency → yang kedua menunggu lalu dilayani; melebihi queue timeout → 429 + `Retry-After` |
+| L2 | body besar ditolak 429 sebelum antre; antrean menolak → bucket dikembalikan (tidak ada kebocoran token) |
+| L4 | pemakaian dihitung dari `usageHistory`; reset memindahkan batas; prune tidak mengurangi hitungan (carryover) |
+| L6 | node kadaluarsa dilewati seleksi; kandidat tunggal → 403 `provider_contract_expired` |
+| D6 | failover combo melepas slot (buktikan dengan limit concurrency 1 + dua kandidat) |
+| API | merge `nil`/`0`/angka; negatif → 400; RFC3339 invalid → 400 |
+| UI | `bun run ratchet:svelte -- --tsconfig tsconfig.app.json` tidak menambah error; mode bulk terverifikasi di browser |
+| Failover | node A penuh + node B bebas → request sukses lewat B; A tercatat sebagai attempt gagal, B tidak tersentuh |
+| Debug | tiap pelanggaran menerbitkan satu baris log terstruktur + `router_rate_limit_rejects_total{scope="provider"}` + `lastError` pada node; body `429` terakhir memuat `attempts` |
+
+Integrasi: tambahkan kasus di `internal/integration/` (fake upstream, DB sementara) untuk menegakkan limit per node,
+karena unit test tidak melihat wiring router yang sebenarnya.
+
+---
+
+## 10. Risiko
+
+| Risiko | Mitigasi |
+|:--|:--|
+| Kehilangan token saat prune → kuota provider kurang-hitung | carryover provider di PR yang sama + test prune (PR 1) |
+| Kebocoran slot concurrency saat failover | release per attempt + test khusus (PR 2) |
+| Dua scope limit saling menimpa (provider vs key vs plan) | satu resolver per scope, urutan tetap: key → provider; tidak ada kolom limit di `providerNodes.data` (D1) |
+| UI mengirim PUT node penuh saat menyimpan limit → 400 karena `prefix` kosong | endpoint limits terpisah (D8) |
+| Operator mengira `0` = "blokir" padahal `0` = "tanpa batas" | hint eksplisit di form + label `∞` pada tampilan ringkas |
+| Rename node (`urlSuffix` → id berubah) memutus asosiasi limit | limit menempel pada baris node, jadi ikut rename; verifikasi di `provider_nodes_update_test.go` |
+| Failover menyembunyikan pelanggaran (operator tidak sadar limitnya terlalu kecil) | pelanggaran yang di-failover tetap terlihat di empat lapis D7.1: log, counter `scope="provider"`, `lastError` node, dan `attempts` pada `429` terakhir |
+
+---
+
+## 11. Keputusan (tuntas 3/3)
+
+1. ~~Perilaku saat limit provider terlampaui~~ — **SELESAI (Cak Helmi, 2026-10-18): failover ke kandidat combo/connection lain dulu, `429` hanya bila kandidat habis, plus jejak debug empat lapis (log, counter `scope="provider"`, `lastError` node, `attempts` di body).** Lihat D7 + D7.1.
+2. ~~Cakupan L6~~ — **SELESAI (Cak Helmi, 2026-10-18): blokir dispatch saja.** Node kadaluarsa tetap tampil di `/v1/models` (katalog klien tidak berubah mendadak); dispatch ditolak `403 provider_contract_expired` bertipe dan dashboard menandai `status: expired`. Tidak ada penyembunyian dari daftar model.
+3. ~~Basis `tpmLimit`~~ — **SELESAI (Cak Helmi, 2026-10-18): prompt di muka (memutuskan penolakan) + completion nyata direkonsiliasi ke window berjalan saat settle.** Lihat D7 butir L2.
+
+---
+
+## 12. Urutan eksekusi
+
+```
+PR1 data+repo ──► PR2 laju (L1/L2/L3/L5) ──► PR3 kuota+expiry (L4/L6) ──► PR4 API dashboard ──► PR5 UI + bulk models
+```
+PR2 tidak boleh mendarat sebelum PR1 (butuh kolom + loader). PR5 tidak butuh PR2/PR3 untuk bulk models — bulk models bisa dipisah jadi PR sendiri bila mau lebih cepat.
+
+**Lampiran — cek cepat sebelum PR:**
+```bash
+for pair in $(grep -E '^CROSS_TARGETS *:=' Makefile | sed 's/.*:=[[:space:]]*//'); do
+  CGO_ENABLED=0 GOOS=${pair%-*} GOARCH=${pair#*-} go build -o /dev/null ./cmd/9router-go/ || echo "FAIL $pair"
+done
+make test-integration && make vet-svelte
+git diff --name-only main...HEAD | grep -qx CHANGELOG.md && echo "VIOLATION §7.6"
+```
