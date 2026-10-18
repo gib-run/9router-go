@@ -3,7 +3,7 @@ import { TAB_ROUTES } from './router'
 import {
   ALWAYS_VISIBLE_NAV_IDS,
   DEFAULT_HIDDEN_NAV_IDS,
-  HIDEABLE_NAV_GROUPS,
+  TOGGLEABLE_NAV_ENTRIES,
   NAV_GROUPS,
   NAV_ORDER,
   isNavHidden,
@@ -45,10 +45,12 @@ describe('nav model', () => {
     expect(NAV_ORDER.length).toBeGreaterThan(0)
   })
 
-  it('offers every entry to the panel except the ones it may not hide', () => {
-    expect(groupIds(HIDEABLE_NAV_GROUPS)).toEqual(
-      NAV_ORDER.filter((id) => !ALWAYS_VISIBLE_NAV_IDS.includes(id))
-    )
+  it('offers the Plans entry to the panel, and nothing it may not hide', () => {
+    expect(TOGGLEABLE_NAV_ENTRIES.map((entry) => entry.id)).toEqual(['plans'])
+    for (const entry of TOGGLEABLE_NAV_ENTRIES) {
+      expect(NAV_ORDER).toContain(entry.id)
+      expect(ALWAYS_VISIBLE_NAV_IDS).not.toContain(entry.id)
+    }
   })
 
   it('keeps the panel behind an entry it can never hide', () => {
@@ -60,12 +62,13 @@ describe('nav model', () => {
 })
 
 describe('default visibility', () => {
-  it('hides Security and Plans until a list is saved', () => {
-    expect([...DEFAULT_HIDDEN_NAV_IDS]).toEqual(['security', 'plans'])
+  it('hides Plans, and only Plans, until a list is saved', () => {
+    expect([...DEFAULT_HIDDEN_NAV_IDS]).toEqual(['plans'])
     for (const saved of [undefined, null, {}, 'plans', { hidden: 'plans' }]) {
       const ids = renderedIds(saved)
-      expect(ids, JSON.stringify(saved)).not.toContain('security')
       expect(ids, JSON.stringify(saved)).not.toContain('plans')
+      // Security was never a default and must stay visible out of the box.
+      expect(ids, JSON.stringify(saved)).toContain('security')
       expect(ids, JSON.stringify(saved)).toContain('settings')
     }
   })
@@ -75,9 +78,10 @@ describe('default visibility', () => {
     expect(renderedIds({ hidden: [] })).toEqual(NAV_ORDER)
   })
 
-  it('blocks the default-hidden tabs until the operator restores them', () => {
+  it('blocks the default-hidden tab until the operator restores it', () => {
     expect(isNavHidden('plans', undefined)).toBe(true)
-    expect(isNavHidden('security', undefined)).toBe(true)
+    // Security is no longer a default: only a saved list hides it.
+    expect(isNavHidden('security', undefined)).toBe(false)
     expect(isNavHidden('security', { hidden: [] })).toBe(false)
     expect(isNavHidden('plans', { hidden: ['plans'] })).toBe(true)
   })
@@ -130,8 +134,8 @@ describe('stored hide list', () => {
   })
 
   it('starts from the defaults when nothing was saved', () => {
-    expect(setNavVisible(undefined, 'plans', true)).toEqual(['security'])
-    expect(setNavVisible(undefined, 'quota', false)).toEqual(['quota', 'security', 'plans'])
+    expect(setNavVisible(undefined, 'plans', true)).toEqual([])
+    expect(setNavVisible(undefined, 'quota', false)).toEqual(['quota', 'plans'])
   })
 
   it('survives a junk payload without losing a valid entry', () => {

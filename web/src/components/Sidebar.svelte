@@ -81,8 +81,8 @@
     onClose?.()
   }
 
-  // The sidebar and the Feature Visibility panel in Settings read the same
-  // entry list (web/src/lib/nav.ts), so a hidden entry is hidden in both.
+  // The sidebar and the Settings > Sidebar switch read the same entry list
+  // (web/src/lib/nav.ts), so a hidden entry is hidden in both.
   const navGroups = $derived(visibleNavGroups(hiddenNav))
 </script>
 

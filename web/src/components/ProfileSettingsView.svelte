@@ -26,7 +26,8 @@
   import Input from '../lib/ui/Input.svelte'
   import { api, getAuthHeaders, responseErrorMessage, type DatabaseStats, type Settings } from '../api/client'
   import { isCompactUnitsEnabled, setCompactUnits } from '../lib/compactNumber'
-  import { HIDEABLE_NAV_GROUPS, orderHiddenNav, setNavVisible } from '../lib/nav'
+  import { isDetailsExpandedByDefault, setDetailsExpandedByDefault } from '../lib/displayPrefs'
+  import { TOGGLEABLE_NAV_ENTRIES, orderHiddenNav, setNavVisible } from '../lib/nav'
 
   interface Props {
     settings?: Settings
@@ -63,6 +64,9 @@
   // Unit abbreviation is a localStorage-only preference (compactUnits key);
   // there is no server-side setting for it.
   let compactUnits = $state(isCompactUnitsEnabled())
+  // Usage detail panels (Activity Heatmap, Node Health) start collapsed; the
+  // switch below flips that default (detailsExpandedByDefault, localStorage).
+  let detailsExpanded = $state(isDetailsExpandedByDefault())
   let stickyRoundRobinLimit = $state(3)
   let comboStrategy = $state('first-model')
   let forceFallback = $state(false)
@@ -510,6 +514,53 @@
           />
         </div>
       </div>
+
+      <div class="flex items-center justify-between gap-3">
+        <div class="min-w-0">
+          <p class="font-semibold text-text-main">Expand usage details</p>
+          <p class="text-[11px] text-text-subtle">
+            Activity Heatmap and Node Health open instead of starting collapsed
+          </p>
+        </div>
+        <div data-save-hint="off">
+          <Toggle
+            checked={detailsExpanded}
+            size="sm"
+            label="Expand usage details"
+            onChange={(val: boolean) => {
+              setDetailsExpandedByDefault(val)
+              detailsExpanded = isDetailsExpandedByDefault()
+            }}
+          />
+        </div>
+      </div>
+    </Card>
+    <!-- SECTION: Sidebar. Hiding an entry is a saved setting; the panel offers
+         Plans only, so it stays a single switch next to the Display card. -->
+    <Card padding="md" class="space-y-4">
+      <div class="flex items-center gap-2 pb-2 border-b border-border">
+        <Eye class="w-4 h-4 text-brand-500" />
+        <h2 class="text-sm font-bold text-text-main">Sidebar</h2>
+      </div>
+
+      {#each TOGGLEABLE_NAV_ENTRIES as entry (entry.id)}
+        <div class="flex items-center justify-between gap-3">
+          <div class="min-w-0">
+            <p class="font-semibold text-text-main">{entry.label}</p>
+            <p class="text-[11px] text-text-subtle">
+              Hidden from the sidebar and unreachable by URL until this is on
+            </p>
+          </div>
+          <Toggle
+            checked={!hiddenNav.includes(entry.id)}
+            size="sm"
+            label={entry.label}
+            onChange={(val) => {
+              hiddenNav = setNavVisible(hiddenNav, entry.id, val)
+            }}
+          />
+        </div>
+      {/each}
     </Card>
     <!-- SECTION 1: Runtime Storage -->
     <Card padding="md" class="space-y-4">
@@ -1003,55 +1054,6 @@
           ></textarea>
         </div>
       </div>
-    </Card>
-
-    <!-- SECTION 7: Feature Visibility -->
-    <Card padding="md" class="space-y-4">
-      <div class="flex items-center gap-2 pb-2 border-b border-border">
-        <Eye class="w-4 h-4 text-brand-500" />
-        <h2 class="text-sm font-bold text-text-main">Feature Visibility</h2>
-      </div>
-
-      {#each HIDEABLE_NAV_GROUPS as group (group.id)}
-        <div class="space-y-2">
-          {#if group.label}
-            <p class="text-[11px] font-semibold text-text-muted/60 uppercase tracking-wider">
-              {group.label}
-            </p>
-          {/if}
-
-          {#each group.entries as entry (entry.id)}
-            <div class="rounded-[10px] border border-border-subtle p-3 space-y-2">
-              <div class="flex items-center justify-between gap-3">
-                <span class="text-xs font-medium text-text-main">{entry.label}</span>
-                <Toggle
-                  checked={!hiddenNav.includes(entry.id)}
-                  size="sm"
-                  label={entry.label}
-                  onChange={(val) => (hiddenNav = setNavVisible(hiddenNav, entry.id, val))}
-                />
-              </div>
-
-              {#if entry.kind === 'accordion'}
-                <div class="pl-3 space-y-2 border-l border-border-subtle">
-                  {#each entry.children as child (child.id)}
-                    <div class="flex items-center justify-between gap-3">
-                      <span class="text-xs text-text-muted">{child.label}</span>
-                      <Toggle
-                        checked={!hiddenNav.includes(child.id)}
-                        size="sm"
-                        disabled={hiddenNav.includes(entry.id)}
-                        label={child.label}
-                        onChange={(val) => (hiddenNav = setNavVisible(hiddenNav, child.id, val))}
-                      />
-                    </div>
-                  {/each}
-                </div>
-              {/if}
-            </div>
-          {/each}
-        </div>
-      {/each}
     </Card>
 
     <!-- Save reminder: an operator who flipped a switch must not walk away

@@ -6,8 +6,8 @@ import (
 	"strings"
 )
 
-// navVisibilitySettingKey is the settings key the dashboard's Feature Visibility
-// panel writes and the sidebar reads. web/src/lib/nav.ts owns the canonical id
+// navVisibilitySettingKey is the settings key the dashboard's Settings > Sidebar
+// switch writes and the sidebar reads. web/src/lib/nav.ts owns the canonical id
 // list; this file only keeps the stored shape honest, so a stale or hand-crafted
 // payload can never hand the sidebar an id it cannot address.
 const navVisibilitySettingKey = "navVisibility"

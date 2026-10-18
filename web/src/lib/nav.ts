@@ -38,13 +38,24 @@ export interface NavGroup {
 /** Sidebar entries the panel must never hide: the panel lives behind Settings. */
 export const ALWAYS_VISIBLE_NAV_IDS: readonly string[] = ['settings']
 
+/** The Plans entry, shared with NAV_GROUPS and the Settings toggle. */
+const PLANS_LINK: NavLink = { kind: 'link', id: 'plans', label: 'Plans', icon: 'workspace_premium' }
+
 /**
- * A deployment that never saved a hide list starts with Security and Plans
- * hidden: most operators open neither, and both stay one switch away in
- * Settings. Only an absent or unreadable stored list falls back here — an
- * explicit empty list means the operator restored every entry.
+ * The entries the panel offers. Plans (the selling system) is the only one
+ * today: it is hidden out of the box, and Settings turns it back on. Settings
+ * itself is left out — it is the page the panel lives on.
  */
-export const DEFAULT_HIDDEN_NAV_IDS: readonly string[] = ['security', 'plans']
+export const TOGGLEABLE_NAV_ENTRIES: NavLink[] = [PLANS_LINK]
+
+/**
+ * What a deployment that never saved a hide list hides. Only an absent or
+ * unreadable stored list falls back here — an explicit empty list means the
+ * operator restored every entry.
+ */
+export const DEFAULT_HIDDEN_NAV_IDS: readonly string[] = TOGGLEABLE_NAV_ENTRIES.map(
+  (entry) => entry.id
+)
 
 /** Mirrors the server's cap in internal/handlers/dashboard/navvisibility.go. */
 const MAX_HIDDEN_NAV_ENTRIES = 32
@@ -87,19 +98,10 @@ export const NAV_GROUPS: NavGroup[] = [
       { kind: 'link', id: 'console-log', label: 'Console Log', icon: 'terminal' },
       { kind: 'link', id: 'settings', label: 'Settings', icon: 'settings' },
       { kind: 'link', id: 'security', label: 'Security', icon: 'shield_lock' },
-      { kind: 'link', id: 'plans', label: 'Plans', icon: 'workspace_premium' },
+      PLANS_LINK,
     ],
   },
 ]
-
-/**
- * The entries the panel offers. Settings is left out rather than rendered
- * disabled: it is the page the panel lives on, so it can never be hidden.
- */
-export const HIDEABLE_NAV_GROUPS: NavGroup[] = NAV_GROUPS.map((group) => ({
-  ...group,
-  entries: group.entries.filter((entry) => !ALWAYS_VISIBLE_NAV_IDS.includes(entry.id)),
-})).filter((group) => group.entries.length > 0)
 
 /** Every entry id in render order, accordions before their children. */
 export const NAV_ORDER: string[] = NAV_GROUPS.flatMap((group) =>
