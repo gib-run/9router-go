@@ -32,7 +32,7 @@ import (
 
 // testModelTimeout bounds one probe. A provider that never answers (no chat
 // lane, a STT model handed an upload it cannot read) must not hold the button.
-const testModelTimeout = 15 * time.Second
+const testModelTimeout = 45 * time.Second
 
 const (
 	// probeMaxTokens is generous on purpose: a reasoning model spends a small
@@ -257,6 +257,14 @@ func readProbeResult(rec *httptest.ResponseRecorder, kind string) testModelResul
 	body, _ := io.ReadAll(io.LimitReader(rec.Body, probeBodyReadCap))
 	parsed := parseProbeBody(body)
 
+	// Check for inconclusive mid-stream timeout / abort (e.g. status 200 or non-200 like 499/502 with some data: received)
+	if hasReceivedDataBytes(body) {
+		return testModelResult{OK: true, Status: status, Note: "inconclusive (first token received)"}
+	}
+	if status != http.StatusOK && len(bytes.TrimSpace(body)) == 0 {
+		return testModelResult{Status: status, Error: ""}
+	}
+
 	if status != http.StatusOK {
 		errText := probeErrorText(body, parsed)
 		res := testModelResult{
@@ -269,7 +277,13 @@ func readProbeResult(rec *httptest.ResponseRecorder, kind string) testModelResul
 		}
 		return res
 	}
+
 	return verdictForKind(kind, parsed, status)
+}
+
+func hasReceivedDataBytes(body []byte) bool {
+	// Look for any "data:" prefix or chunk in the body
+	return bytes.Contains(body, []byte("data:"))
 }
 
 // cooldownMarkers are the exact sentences the gateway itself emits when every

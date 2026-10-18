@@ -54,3 +54,28 @@ func TestReadProbeResult_StandardErrorIsNotBlocked(t *testing.T) {
 		t.Errorf("expected empty ResetAt, got: %q", res.ResetAt)
 	}
 }
+
+func TestReadProbeResult_MidStreamTimeoutInconclusive(t *testing.T) {
+	// 1. SSE stream emitting a data: prefix then hanging until deadline -> ok = true (success on first token)
+	rec1 := httptest.NewRecorder()
+	rec1.WriteHeader(http.StatusOK)
+	rec1.Write([]byte(`data: {"choices":[{"delta":{"content":"hello"}}]} `))
+
+	res1 := readProbeResult(rec1, "")
+	if !res1.OK {
+		t.Errorf("expected OK=true for stream with data prefix, got OK=false, error=%q", res1.Error)
+	}
+
+	// 2. Probe that never receives an answer within the window -> ok = false with empty error string (inconclusive)
+	rec2 := httptest.NewRecorder()
+	rec2.WriteHeader(499)
+	rec2.Write([]byte(``))
+
+	res2 := readProbeResult(rec2, "")
+	if res2.OK {
+		t.Error("expected OK=false for empty aborted probe")
+	}
+	if res2.Error != "" {
+		t.Errorf("expected empty error string for inconclusive probe, got %q", res2.Error)
+	}
+}
