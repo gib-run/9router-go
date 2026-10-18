@@ -39,7 +39,7 @@ export interface NavGroup {
 export const ALWAYS_VISIBLE_NAV_IDS: readonly string[] = ['settings']
 
 /** The Plans entry, shared with NAV_GROUPS and the Settings toggle. */
-const PLANS_LINK: NavLink = { kind: 'link', id: 'plans', label: 'Advanced Usage', icon: 'workspace_premium' }
+const PLANS_LINK: NavLink = { kind: 'link', id: 'plans', label: 'Plans', icon: 'workspace_premium' }
 
 /**
  * The entries the panel offers. Plans (the selling system) is the only one

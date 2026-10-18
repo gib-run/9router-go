@@ -39,6 +39,7 @@
   import { PROVIDER_CATALOG } from './lib/providers'
   import { getIconPath } from './components/connections/types'
   import { isNavHidden, normalizeHiddenNav } from './lib/nav'
+  import { setHiddenNavEntries } from './lib/navVisibility.svelte'
 
   let activeTab = $state<ActiveTab>(
     typeof window !== 'undefined' ? pathToTab(window.location.pathname) : 'endpoint'
@@ -55,6 +56,10 @@
   // Feature Visibility: the entries the operator hid in Settings. The sidebar
   // and this guard read the same list (web/src/lib/nav.ts).
   let hiddenNav = $derived(normalizeHiddenNav(settings.navVisibility))
+
+  // Mirror the list for the components that read it outside the settings flow
+  // (the API-key editor drops its Plan field with the entry).
+  $effect(() => setHiddenNavEntries(hiddenNav))
 
   // A hidden tab must not stay reachable by its own URL: the panel promises the
   // entry is gone, and a bookmark or a back navigation would otherwise reopen

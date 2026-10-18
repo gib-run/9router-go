@@ -538,15 +538,16 @@
       {#each TOGGLEABLE_NAV_ENTRIES as entry (entry.id)}
         <div class="flex items-center justify-between gap-3">
           <div class="min-w-0">
-            <p class="font-semibold text-text-main">{entry.label}</p>
+            <p class="font-semibold text-text-main">Advanced usage</p>
             <p class="text-[11px] text-text-subtle">
-              Hidden from the sidebar and unreachable by URL until this is on
+              Off: {entry.label} leaves the sidebar, its URL stops resolving, and the API-key
+              editor hides the Plan field
             </p>
           </div>
           <Toggle
             checked={!hiddenNav.includes(entry.id)}
             size="sm"
-            label={entry.label}
+            label="Advanced usage"
             onChange={(val) => {
               hiddenNav = setNavVisible(hiddenNav, entry.id, val)
             }}
