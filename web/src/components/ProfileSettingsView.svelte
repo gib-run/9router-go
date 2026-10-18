@@ -26,6 +26,14 @@
   import Input from '../lib/ui/Input.svelte'
   import { api, getAuthHeaders, responseErrorMessage, type DatabaseStats, type Settings } from '../api/client'
   import { isCompactUnitsEnabled, setCompactUnits } from '../lib/compactNumber'
+  import {
+    ALWAYS_VISIBLE_NAV_IDS,
+    NAV_GROUPS,
+    NOT_ON_MAIN_NAV_FEATURES,
+    orderHiddenNav,
+    provenanceNote,
+    setNavVisible
+  } from '../lib/nav'
 
   interface Props {
     settings?: Settings
@@ -65,6 +73,10 @@
   let stickyRoundRobinLimit = $state(3)
   let comboStrategy = $state('first-model')
   let forceFallback = $state(false)
+
+  // Feature Visibility: ids of the sidebar entries this deployment hides. The
+  // entry list itself lives in web/src/lib/nav.ts, shared with the sidebar.
+  let hiddenNav = $state<string[]>([])
 
   // Password Management State
   let currentPassword = $state('')
@@ -130,6 +142,9 @@
       if (typeof settings.samlIssuer === 'string') samlIssuer = settings.samlIssuer
       if (typeof settings.samlCert === 'string') samlCert = settings.samlCert
       if (typeof settings.samlLoginLabel === 'string') samlLoginLabel = settings.samlLoginLabel
+
+      // Feature Visibility
+      hiddenNav = orderHiddenNav(settings.navVisibility)
     }
   })
 
@@ -142,6 +157,8 @@
         if (s.sessionTimeout) sessionTimeout = String(s.sessionTimeout)
         if (s.fallbackStrategy) fallbackStrategy = String(s.fallbackStrategy)
         if (typeof s.stickyRoundRobinLimit === 'number') stickyRoundRobinLimit = s.stickyRoundRobinLimit
+        // Feature Visibility
+        hiddenNav = orderHiddenNav(s.navVisibility)
         if (s.comboStrategy) comboStrategy = String(s.comboStrategy)
         if (typeof s.forceFallback === 'boolean') forceFallback = s.forceFallback
         enableSystemPrompt = !!s.systemPromptEnabled
@@ -198,6 +215,7 @@
         oidcClientId,
         oidcScopes,
         oidcLoginLabel,
+        navVisibility: { hidden: hiddenNav },
         samlEntryPoint,
         samlIssuer,
         samlCert,
@@ -948,6 +966,83 @@
             class="w-full px-3 py-2 rounded-lg bg-bg border border-border text-xs font-mono text-text-main focus:outline-none focus:border-brand-500"
           ></textarea>
         </div>
+      </div>
+    </Card>
+
+    <!-- SECTION 7: Feature Visibility -->
+    <Card padding="md" class="space-y-4">
+      <div class="flex items-center gap-2 pb-2 border-b border-border">
+        <Eye class="w-4 h-4 text-brand-500" />
+        <h2 class="text-sm font-bold text-text-main">Feature Visibility</h2>
+      </div>
+
+      <p class="text-xs text-text-muted leading-relaxed">
+        Hide the sidebar entries this deployment does not use. A hidden entry leaves the sidebar and
+        its URL redirects to Endpoint & Key. Settings stays visible, so this panel can always be
+        reopened.
+      </p>
+
+      {#each NAV_GROUPS as group (group.id)}
+        <div class="space-y-2">
+          {#if group.label}
+            <p class="text-[11px] font-semibold text-text-muted/60 uppercase tracking-wider">
+              {group.label}
+            </p>
+          {/if}
+
+          {#each group.entries as entry (entry.id)}
+            <div class="rounded-[10px] border border-border-subtle p-3 space-y-2">
+              <div class="flex items-center justify-between gap-3">
+                <span class="text-xs font-medium text-text-main">{entry.label}</span>
+                <Toggle
+                  checked={!hiddenNav.includes(entry.id)}
+                  size="sm"
+                  disabled={ALWAYS_VISIBLE_NAV_IDS.includes(entry.id)}
+                  label={entry.label}
+                  onChange={(val) => (hiddenNav = setNavVisible(hiddenNav, entry.id, val))}
+                />
+              </div>
+
+              {#if entry.kind === 'accordion'}
+                <div class="pl-3 space-y-2 border-l border-border-subtle">
+                  {#each entry.children as child (child.id)}
+                    <div class="flex items-center justify-between gap-3">
+                      <span class="text-xs text-text-muted">{child.label}</span>
+                      <Toggle
+                        checked={!hiddenNav.includes(child.id)}
+                        size="sm"
+                        disabled={hiddenNav.includes(entry.id)}
+                        label={child.label}
+                        onChange={(val) => (hiddenNav = setNavVisible(hiddenNav, child.id, val))}
+                      />
+                    </div>
+                  {/each}
+                </div>
+              {/if}
+
+              {#if entry.provenance}
+                <p class="text-[11px] text-text-muted leading-relaxed">
+                  {entry.provenance.summary}
+                  <span class="text-text-subtle">{provenanceNote(entry.provenance)}</span>
+                </p>
+              {/if}
+            </div>
+          {/each}
+        </div>
+      {/each}
+
+      <div class="rounded-[10px] border border-border-subtle p-3 space-y-2">
+        <p class="text-xs font-medium text-text-main">Not on main yet</p>
+        <p class="text-[11px] text-text-muted leading-relaxed">
+          These features have no sidebar entry to toggle here: they are specified but not ported.
+        </p>
+        {#each NOT_ON_MAIN_NAV_FEATURES as feature (feature.id)}
+          <p class="text-[11px] text-text-muted leading-relaxed">
+            <span class="text-text-main">{feature.label}</span>
+            — {feature.provenance.summary}
+            {provenanceNote(feature.provenance)}
+          </p>
+        {/each}
       </div>
     </Card>
 
