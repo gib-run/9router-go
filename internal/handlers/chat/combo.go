@@ -636,6 +636,25 @@ func (h *ChatHandler) handleComboFallback(ctx context.Context, w http.ResponseWr
 						lastErr = ue
 						break
 					}
+					if attempt, refused := providerLimitRefusal(fwdErr); refused {
+						// A provider at its own capacity is neither an account
+						// fault nor a bad model: cooling the connection down
+						// would park a healthy account, and the next candidate
+						// may be free. Keep the refusal as the terminal error for
+						// when none is left.
+						log.Info("combo", "provider limit, next candidate",
+							"provider", modelInfo.Provider, "model", modelInfo.Model,
+							"axis", attempt.Axis, "conn", connID)
+						var refusedErr *upstreamError
+						errors.As(fwdErr, &refusedErr)
+						if refusedErr != nil {
+							lastErr = refusedErr
+						}
+						if isKnownNoAuth {
+							break
+						}
+						continue
+					}
 					var ue *upstreamError
 					if errors.As(fwdErr, &ue) {
 						// A 410 naming a dead model is a routing fact, not an account
@@ -855,6 +874,23 @@ func (h *ChatHandler) handleMessagesComboFallback(ctx context.Context, w http.Re
 						errors.As(fwdErr, &blocked)
 						lastErr = blocked
 						break
+					}
+					if attempt, refused := providerLimitRefusal(fwdErr); refused {
+						// Same contract as the OpenAI loop: the endpoint is busy,
+						// so the next candidate is tried without a cooldown on an
+						// account that did nothing wrong.
+						log.Info("combo", "provider limit, next candidate",
+							"provider", modelInfo.Provider, "model", modelInfo.Model,
+							"axis", attempt.Axis, "conn", connID)
+						var refusedErr *upstreamError
+						errors.As(fwdErr, &refusedErr)
+						if refusedErr != nil {
+							lastErr = refusedErr
+						}
+						if isKnownNoAuth {
+							break
+						}
+						continue
 					}
 					var ue *upstreamError
 					if errors.As(fwdErr, &ue) {
