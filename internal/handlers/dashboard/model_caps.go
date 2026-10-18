@@ -83,7 +83,7 @@ func (h *DashboardHandler) HandleGetModelCaps(w http.ResponseWriter, r *http.Req
 		caps[model] = entry
 	}
 
-	if custom := h.customModelCaps(provider, resolved); len(custom) > 0 {
+	if custom := h.customModelCaps(provider, resolved, models); len(custom) > 0 {
 		for id, cEntry := range custom {
 			if _, exists := caps[id]; !exists {
 				caps[id] = cEntry
@@ -123,7 +123,7 @@ func (h *DashboardHandler) HandleGetModelCaps(w http.ResponseWriter, r *http.Req
 // catalog at all, so before this the endpoint answered caps: {} and the
 // dashboard never saw the models it had just been given — nor the limits they
 // declare.
-func (h *DashboardHandler) customModelCaps(provider, resolved string) map[string]modelCaps {
+func (h *DashboardHandler) customModelCaps(provider, resolved string, staticModels []string) map[string]modelCaps {
 	if h.Repo == nil {
 		return nil
 	}
@@ -138,6 +138,10 @@ func (h *DashboardHandler) customModelCaps(provider, resolved string) map[string
 	caps := map[string]modelCaps{}
 	for _, cm := range customs {
 		if cm == nil || !isLLMCustomModelType(cm.Type) || !slices.Contains(aliases, cm.ProviderAlias) {
+			continue
+		}
+		// Skip custom models whose ID is already owned by the static catalog
+		if slices.Contains(staticModels, cm.ID) {
 			continue
 		}
 		// The same publication /v1/models does. Without it the row's saved
