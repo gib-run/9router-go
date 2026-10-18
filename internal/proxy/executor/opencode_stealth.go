@@ -6,13 +6,11 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"strings"
 	"sync"
-	"time"
 
 	"9router/proxy/internal/log"
 	"9router/proxy/internal/providers"
@@ -165,12 +163,8 @@ func newOpencodeClientProfile() profiles.ClientProfile {
 // newOpencodeStealthClient constructs an HttpClient with proxy support and no redirects.
 func newOpencodeStealthClient(reference *http.Client) (*opencodeStealthClient, error) {
 	options := []tls_client.HttpClientOption{
-		tls_client.WithTimeoutSeconds(0),
+		tls_client.WithTimeoutSeconds(120),
 		tls_client.WithClientProfile(newOpencodeClientProfile()),
-		tls_client.WithDialer(net.Dialer{
-			Timeout:   15 * time.Second,
-			KeepAlive: 30 * time.Second,
-		}),
 		tls_client.WithNotFollowRedirects(),
 	}
 	if proxyURL := opencodeProxyFrom(reference); proxyURL != "" {
