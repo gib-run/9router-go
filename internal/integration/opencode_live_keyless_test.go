@@ -26,7 +26,7 @@ import (
 //
 // Two consequences:
 //
-//   - It is opt-in via OROUTER_LIVE_OPENCODE=1. CI never sets it, so a run
+//   - It is opt-in via 9ROUTER_LIVE_OPENCODE=1. CI never sets it, so a run
 //     without the variable skips instead of reaching the network.
 //   - A refusal from the provider is not this gateway's defect. The free tier
 //     is shared and rate limited per IP, so 403/429/5xx skip with the body
@@ -141,15 +141,15 @@ func doLive(t *testing.T, req *http.Request) liveStatus {
 	return liveStatus{code: resp.StatusCode, body: string(body)}
 }
 
-// TestLiveOpenCode_BigPickle_KeylessGate reports whether the real free-tier
-// gate currently serves a genuine free-tier id.
+// TestLiveOpenCode_FreeTierGate reports whether the real free-tier gate
+// currently serves a genuine free-tier id.
 //
 // It deliberately does not fail when the gate refuses. A closed or rotating free
 // tier is a fact about upstream, not a defect in this gateway, and a test that
 // went red every time the tier closed would be turned off within a week. What
 // it must never do is call a refusal a success — hence classifyLive, which reads
 // the payload rather than the status line.
-func TestLiveOpenCode_BigPickle_KeylessGate(t *testing.T) {
+func TestLiveOpenCode_FreeTierGate(t *testing.T) {
 	if !liveOpenCodeEnabled() {
 		t.Skipf("live OpenCode call: set %s=1 to run it against the real gate", liveOpenCodeEnv)
 	}
@@ -186,10 +186,10 @@ func TestLiveOpenCode_BigPickle_KeylessGate(t *testing.T) {
 	}
 }
 
-// TestLiveOpenCode_BigPickle_Control_WithoutFingerprint is the control for the
+// TestLiveOpenCode_FreeTierGate_Control_WithoutFingerprint is the control for the
 // call above: the same model with no client tools declared. Comparing the two
 // shows whether the shaping step is what the gate rewards on this lane.
-func TestLiveOpenCode_BigPickle_Control_WithoutFingerprint(t *testing.T) {
+func TestLiveOpenCode_FreeTierGate_Control_WithoutFingerprint(t *testing.T) {
 	if !liveOpenCodeEnabled() {
 		t.Skipf("live OpenCode call: set %s=1 to run it against the real gate", liveOpenCodeEnv)
 	}

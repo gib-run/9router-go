@@ -47,9 +47,23 @@ Two related defects were found by testing rather than reading:
 
 Verified with `go build ./...`, `go test ./internal/proxy/...
 ./internal/handlers/chat/ ./internal/translator/ ./internal/providers/`,
-`go test -tags=integration ./internal/integration/` (70s), and
-`golangci-lint run --new-from-rev=origin/main` (0 issues). The end-to-end cases
-drive the real router against a fake gate that refuses: the client sees `503`
-with `Retry-After` and no `FreeTierError`, one upstream attempt, and a second
-request still reaching the upstream (proving no lock). The hostile case adds a
-mis-declared `Content-Length` to exercise the truncated-body path.
+`go test -tags=integration ./internal/integration/`, and
+`golangci-lint run --new-from-rev=origin/main` (0 issues).
+
+The end-to-end cases live in
+`internal/integration/opencode_free_tier_closure_test.go` and drive the real
+router against a fake gate that refuses every attempt:
+
+- `TestFreeTierRefusal_ReportsUnavailableNotForbidden` — the client sees `503`
+  with `Retry-After`, `free_tier_unavailable` names the condition, and neither
+  the gate's error type nor its wording reaches the body.
+- `TestFreeTierRefusal_DoesNotCoolTheConnectionDown` — two successive requests
+  each dial the upstream, so the first refusal did not lock the connection.
+- `TestFreeTierRefusal_SurvivesATruncatedErrorBody` — a mis-declared
+  `Content-Length` still yields `503`, not an opaque `502`, because the status
+  survives a partial read.
+
+The gate's accept path is covered separately in
+`opencode_zen_gate_simulation_test.go` (`TestInferenceGate_*`), which shapes a
+harness body through the router, asserts the outbound tool set, and keeps a
+negative control so the fake is not simply permissive.

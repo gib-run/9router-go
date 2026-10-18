@@ -352,3 +352,82 @@ func TestInferenceGate_RawBodyIsRefused(t *testing.T) {
 		t.Error("the gate should have refused the unshaped tool set")
 	}
 }
+
+// The 200 path: a harness-shaped body reaches the gate through the real router
+// and is accepted once shaped, with the outbound body asserted to carry the
+// genuine CLI fingerprint.
+//
+// Retargeted from big-pickle to a genuine -free id when that classification was
+// reverted; the gate contract under test is unchanged, and without this the
+// fake gate's accept path would have no caller at all.
+func TestInferenceGate_ShapedHarnessBodyAnswers200(t *testing.T) {
+	env := newEnv(t)
+	gate := &inferenceGate{}
+	up, reqs := newInferenceGateUpstream(t, env, gate)
+	addZenConnection(t, env, up)
+
+	res := env.Post(t, "/v1/chat/completions", freeTierBody(claudeCodeToolset()))
+	if res.Status != http.StatusOK {
+		t.Fatalf("gate answered %d, want 200; refusals: %v; body: %s",
+			res.Status, gate.refusals, truncate(res.Body))
+	}
+	if len(gate.refusals) != 0 {
+		t.Errorf("gate recorded a refusal although the client got 200: %v", gate.refusals)
+	}
+
+	sent := reqs.last(t)
+	if sent.path != "/inference/v1/chat/completions" {
+		t.Errorf("upstream path = %q, want /inference/v1/chat/completions", sent.path)
+	}
+	names := gateToolNames(t, sent.body)
+	if !containsName(names, "read") || !containsName(names, "shell") {
+		t.Errorf("shaped body must declare the exact %q and %q tools, got %v", "read", "shell", names)
+	}
+	if !strings.Contains(string(res.Body), "free-tier-200") {
+		t.Errorf("client must see the upstream text, got %s", truncate(res.Body))
+	}
+}
+
+// A tool-less request is refused by the real gate, so the shaper injects the
+// required tools and the simulated call comes back 200.
+func TestInferenceGate_ToolLessBodyAnswers200(t *testing.T) {
+	env := newEnv(t)
+	gate := &inferenceGate{}
+	up, reqs := newInferenceGateUpstream(t, env, gate)
+	addZenConnection(t, env, up)
+
+	res := env.Post(t, "/v1/chat/completions", freeTierBody(nil))
+	if res.Status != http.StatusOK {
+		t.Fatalf("gate answered %d, want 200; refusals: %v; body: %s",
+			res.Status, gate.refusals, truncate(res.Body))
+	}
+	names := gateToolNames(t, reqs.last(t).body)
+	if !containsName(names, "read") {
+		t.Errorf("shaped body must declare %q, got %v", "read", names)
+	}
+}
+
+// The file header calls this an end-to-end simulation, so at least one case has
+// to prove the fake is not simply permissive: the same body with the wrong
+// credentials and an unshaped tool set is refused.
+func TestInferenceGate_ContractIsEnforced(t *testing.T) {
+	gate := &inferenceGate{}
+	req, err := http.NewRequest(http.MethodPost, "http://gate.invalid/inference/v1/chat/completions", nil)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	req.Header.Set("User-Agent", "opencode/latest/2.0.29/cli")
+	session := "ses_000000000000AAAAAAAAAAAAAA"
+	for _, h := range []string{"x-opencode-session", "x-opencode-session-id", "x-session-affinity", "x-session-id"} {
+		req.Header.Set(h, session)
+	}
+	req.Header.Set("Authorization", "Bearer sk-user-key")
+
+	raw, err := json.Marshal(freeTierBody(nil))
+	if err != nil {
+		t.Fatalf("encode fixture: %v", err)
+	}
+	if got := gate.status(req, raw); got != http.StatusForbidden {
+		t.Errorf("a user key must not satisfy the keyless gate, got %d", got)
+	}
+}
