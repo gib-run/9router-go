@@ -5,8 +5,6 @@
     Check,
     Database,
     Download,
-    Eye,
-    EyeOff,
     Key,
     Laptop,
     Loader2,
@@ -488,7 +486,9 @@
     onchange={handleSettingsInput}
     onclick={handleSettingsInput}
   >
-    <!-- SECTION: Display preferences (localStorage-backed, not saved server-side) -->
+    <!-- SECTION: Display. Unit abbreviation and the usage-detail default are
+         localStorage preferences; the sidebar switch below them is a saved
+         setting (navVisibility), so a change there raises the save reminder. -->
     <Card padding="md" class="space-y-4">
       <div class="flex items-center justify-between pb-2 border-b border-border">
         <div class="flex items-center gap-2">
@@ -533,14 +533,6 @@
             }}
           />
         </div>
-      </div>
-    </Card>
-    <!-- SECTION: Sidebar. Hiding an entry is a saved setting; the panel offers
-         Plans only, so it stays a single switch next to the Display card. -->
-    <Card padding="md" class="space-y-4">
-      <div class="flex items-center gap-2 pb-2 border-b border-border">
-        <Eye class="w-4 h-4 text-brand-500" />
-        <h2 class="text-sm font-bold text-text-main">Sidebar</h2>
       </div>
 
       {#each TOGGLEABLE_NAV_ENTRIES as entry (entry.id)}

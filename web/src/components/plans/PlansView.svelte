@@ -187,7 +187,7 @@
 <div class="max-w-5xl mx-auto space-y-6">
   <div class="flex items-start justify-between gap-4 flex-wrap">
     <div>
-      <h1 class="text-2xl font-semibold text-text-main">Plans</h1>
+      <h1 class="text-2xl font-semibold text-text-main">Advanced Usage</h1>
       <p class="text-sm text-text-muted mt-1">
         Reusable policy templates. A key assigned to a plan inherits its limits as defaults and can
         still override them individually.

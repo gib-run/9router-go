@@ -48,6 +48,9 @@
   let combos = $state<Combo[]>([])
   let apiKeys = $state<APIKey[]>([])
   let settings = $state<Settings>({})
+  // True once the boot fetch has resolved, so the visibility guard can tell
+  // "this deployment stores no hide list" from "the list has not arrived yet".
+  let settingsLoaded = $state(false)
 
   // Feature Visibility: the entries the operator hid in Settings. The sidebar
   // and this guard read the same list (web/src/lib/nav.ts).
@@ -56,7 +59,12 @@
   // A hidden tab must not stay reachable by its own URL: the panel promises the
   // entry is gone, and a bookmark or a back navigation would otherwise reopen
   // it. Endpoint & Key is never hideable, so the redirect always terminates.
+  //
+  // The guard waits for the boot fetch: until it resolves `settings` is empty,
+  // so the fallback list would bounce a deep link to an entry the operator has
+  // since made visible.
   $effect(() => {
+    if (!settingsLoaded) return
     if (isNavHidden(activeTab, hiddenNav)) {
       navigate('endpoint', true)
     }
@@ -138,6 +146,7 @@
       apiKeys = keysRes
       settings = settingsRes
     } finally {
+      settingsLoaded = true
       isLoading = false
     }
   }
