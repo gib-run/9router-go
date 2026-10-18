@@ -105,54 +105,56 @@
       </div>
     {/if}
 
-    <Card padding="md" title="Activity Heatmap" icon={calIcon} action={heatmapToggle}>
+    <Card padding="none" class="overflow-hidden border border-border">
+      <div
+        class="flex flex-col gap-3 bg-surface-2 px-5 py-3 sm:flex-row sm:items-center sm:justify-between {heatmapOpen
+          ? 'border-b border-border'
+          : ''}"
+      >
+        <div class="min-w-0">
+          <h2 class="font-headline text-sm font-bold text-text-main">Activity Heatmap</h2>
+          <p class="font-body text-xs text-text-muted">Requests per day</p>
+        </div>
+        {@render panelToggle(heatmapOpen, 'Activity Heatmap', () => (heatmapOpen = !heatmapOpen))}
+      </div>
       {#if heatmapOpen}
-        <ActivityHeatmap daily={data.daily || []} currentStreak={lifetime?.currentStreak ?? 0} />
+        <div class="p-5">
+          <ActivityHeatmap daily={data.daily || []} currentStreak={lifetime?.currentStreak ?? 0} />
+        </div>
       {/if}
     </Card>
-
-    <Card padding="md" title="Node Health" icon={dnsIcon} action={healthToggle}>
+    <Card padding="none" class="overflow-hidden border border-border">
+      <div
+        class="flex flex-col gap-3 bg-surface-2 px-5 py-3 sm:flex-row sm:items-center sm:justify-between {healthOpen
+          ? 'border-b border-border'
+          : ''}"
+      >
+        <div class="min-w-0">
+          <h2 class="font-headline text-sm font-bold text-text-main">Node Health</h2>
+          <p class="font-body text-xs text-text-muted">Last 7 days (≥50 real requests)</p>
+        </div>
+        {@render panelToggle(healthOpen, 'Node Health', () => (healthOpen = !healthOpen))}
+      </div>
       {#if healthOpen}
-        <p class="mb-2 text-xs text-text-muted">Last 7 days (≥50 real requests)</p>
-        <NodeHealthTable nodes={data.nodes || []} models={data.models || []} />
+        <div class="p-5">
+          <NodeHealthTable nodes={data.nodes || []} models={data.models || []} />
+        </div>
       {/if}
     </Card>
   {/if}
 </div>
 
-{#snippet calIcon()}
-  <span class="material-symbols-outlined text-[18px]" aria-hidden="true">calendar_month</span>
-{/snippet}
-{#snippet dnsIcon()}
-  <span class="material-symbols-outlined text-[18px]" aria-hidden="true">dns</span>
-{/snippet}
-{#snippet heatmapToggle()}
+{#snippet panelToggle(open: boolean, label: string, onToggle: () => void)}
   <button
     type="button"
-    aria-expanded={heatmapOpen}
-    aria-label="Toggle Activity Heatmap"
-    onclick={() => (heatmapOpen = !heatmapOpen)}
-    class="p-1 rounded-lg text-text-muted hover:text-text-main hover:bg-surface-2 transition-colors cursor-pointer"
+    aria-expanded={open}
+    aria-label="Toggle {label}"
+    onclick={onToggle}
+    class="shrink-0 cursor-pointer self-start rounded-lg p-1 text-text-muted transition-colors hover:bg-surface-3 hover:text-text-main focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/50 sm:self-auto"
   >
     <span
       class="material-symbols-outlined text-[18px] transition-transform duration-200"
-      style:transform={heatmapOpen ? 'rotate(180deg)' : 'rotate(0deg)'}
-    >
-      expand_more
-    </span>
-  </button>
-{/snippet}
-{#snippet healthToggle()}
-  <button
-    type="button"
-    aria-expanded={healthOpen}
-    aria-label="Toggle Node Health"
-    onclick={() => (healthOpen = !healthOpen)}
-    class="p-1 rounded-lg text-text-muted hover:text-text-main hover:bg-surface-2 transition-colors cursor-pointer"
-  >
-    <span
-      class="material-symbols-outlined text-[18px] transition-transform duration-200"
-      style:transform={healthOpen ? 'rotate(180deg)' : 'rotate(0deg)'}
+      style:transform={open ? 'rotate(180deg)' : 'rotate(0deg)'}
     >
       expand_more
     </span>
