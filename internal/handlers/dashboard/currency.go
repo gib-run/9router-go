@@ -212,7 +212,7 @@ func (h *DashboardHandler) HandleRefreshCurrencyRates(w http.ResponseWriter, r *
 		writePlainError(w, http.StatusBadRequest, "failed to read body")
 		return
 	}
-	defer r.Body.Close()
+	defer func() { _ = r.Body.Close() }()
 
 	var payload currencyRefreshRequest
 	if err := json.Unmarshal(body, &payload); err != nil {
@@ -333,7 +333,7 @@ func readCurrencyRates(ctx context.Context, client *http.Client, source string, 
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("unexpected status %d", resp.StatusCode)
 	}
