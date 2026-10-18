@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onDestroy, onMount } from 'svelte'
   import {
     AlertCircle,
     Check,
@@ -26,14 +26,7 @@
   import Input from '../lib/ui/Input.svelte'
   import { api, getAuthHeaders, responseErrorMessage, type DatabaseStats, type Settings } from '../api/client'
   import { isCompactUnitsEnabled, setCompactUnits } from '../lib/compactNumber'
-  import {
-    ALWAYS_VISIBLE_NAV_IDS,
-    NAV_GROUPS,
-    NOT_ON_MAIN_NAV_FEATURES,
-    orderHiddenNav,
-    provenanceNote,
-    setNavVisible
-  } from '../lib/nav'
+  import { HIDEABLE_NAV_GROUPS, orderHiddenNav, setNavVisible } from '../lib/nav'
 
   interface Props {
     settings?: Settings
@@ -77,6 +70,10 @@
   // Feature Visibility: ids of the sidebar entries this deployment hides. The
   // entry list itself lives in web/src/lib/nav.ts, shared with the sidebar.
   let hiddenNav = $state<string[]>([])
+  // A visibility change is not saved until the operator presses Save, so the
+  // button is offered on its own for a few seconds after a change.
+  let showSaveHint = $state(false)
+  let saveHintTimer: ReturnType<typeof setTimeout> | null = null
 
   // Password Management State
   let currentPassword = $state('')
@@ -192,6 +189,17 @@
     enableSystemPrompt = true
   }
 
+  /** Offers the save button for a few seconds after a visibility change. */
+  function markUnsaved() {
+    showSaveHint = true
+    if (saveHintTimer) clearTimeout(saveHintTimer)
+    saveHintTimer = setTimeout(() => (showSaveHint = false), 4000)
+  }
+
+  onDestroy(() => {
+    if (saveHintTimer) clearTimeout(saveHintTimer)
+  })
+
   async function handleSaveAll() {
     isSavingSettings = true
     saveSuccess = false
@@ -222,6 +230,9 @@
         samlLoginLabel,
       })
       saveSuccess = true
+      showSaveHint = false
+      if (saveHintTimer) clearTimeout(saveHintTimer)
+      saveHintTimer = null
       onRefresh?.()
       setTimeout(() => (saveSuccess = false), 3000)
     } catch (err) {
@@ -976,13 +987,7 @@
         <h2 class="text-sm font-bold text-text-main">Feature Visibility</h2>
       </div>
 
-      <p class="text-xs text-text-muted leading-relaxed">
-        Hide the sidebar entries this deployment does not use. A hidden entry leaves the sidebar and
-        its URL redirects to Endpoint & Key. Settings stays visible, so this panel can always be
-        reopened.
-      </p>
-
-      {#each NAV_GROUPS as group (group.id)}
+      {#each HIDEABLE_NAV_GROUPS as group (group.id)}
         <div class="space-y-2">
           {#if group.label}
             <p class="text-[11px] font-semibold text-text-muted/60 uppercase tracking-wider">
@@ -997,9 +1002,11 @@
                 <Toggle
                   checked={!hiddenNav.includes(entry.id)}
                   size="sm"
-                  disabled={ALWAYS_VISIBLE_NAV_IDS.includes(entry.id)}
                   label={entry.label}
-                  onChange={(val) => (hiddenNav = setNavVisible(hiddenNav, entry.id, val))}
+                  onChange={(val) => {
+                    hiddenNav = setNavVisible(hiddenNav, entry.id, val)
+                    markUnsaved()
+                  }}
                 />
               </div>
 
@@ -1013,38 +1020,36 @@
                         size="sm"
                         disabled={hiddenNav.includes(entry.id)}
                         label={child.label}
-                        onChange={(val) => (hiddenNav = setNavVisible(hiddenNav, child.id, val))}
+                        onChange={(val) => {
+                          hiddenNav = setNavVisible(hiddenNav, child.id, val)
+                          markUnsaved()
+                        }}
                       />
                     </div>
                   {/each}
                 </div>
               {/if}
-
-              {#if entry.provenance}
-                <p class="text-[11px] text-text-muted leading-relaxed">
-                  {entry.provenance.summary}
-                  <span class="text-text-subtle">{provenanceNote(entry.provenance)}</span>
-                </p>
-              {/if}
             </div>
           {/each}
         </div>
       {/each}
-
-      <div class="rounded-[10px] border border-border-subtle p-3 space-y-2">
-        <p class="text-xs font-medium text-text-main">Not on main yet</p>
-        <p class="text-[11px] text-text-muted leading-relaxed">
-          These features have no sidebar entry to toggle here: they are specified but not ported.
-        </p>
-        {#each NOT_ON_MAIN_NAV_FEATURES as feature (feature.id)}
-          <p class="text-[11px] text-text-muted leading-relaxed">
-            <span class="text-text-main">{feature.label}</span>
-            — {feature.provenance.summary}
-            {provenanceNote(feature.provenance)}
-          </p>
-        {/each}
-      </div>
     </Card>
+
+    <!-- Save reminder: an operator who flipped a switch must not walk away
+         without saving. It appears on a change and hides itself again after a
+         few seconds (markUnsaved). -->
+    {#if showSaveHint}
+      <div
+        role="status"
+        class="fixed bottom-5 right-5 z-40 flex items-center gap-3 rounded-[10px] border border-border bg-surface-2 px-4 py-3 shadow-[var(--shadow-elev)]"
+      >
+        <span class="text-xs text-text-muted">Unsaved changes</span>
+        <Button variant="primary" onclick={handleSaveAll} loading={isSavingSettings}>
+          <Save class="w-3.5 h-3.5" />
+          <span>Save</span>
+        </Button>
+      </div>
+    {/if}
 
     <Modal
       isOpen={dbAuthOpen}

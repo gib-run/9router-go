@@ -10,29 +10,11 @@ import type { ActiveTab } from './router'
  * reports success, and nothing changes.
  */
 
-/** Where a dashboard feature came from, so the panel can name its provenance. */
-export interface NavProvenance {
-  /** What the feature is, in one line. */
-  summary: string
-  /** Branch that carried or carries the feature; absent when there is none yet. */
-  branch?: string
-  /** Port-plan section, for a feature that is specified but not implemented. */
-  plan?: string
-  /** Pull requests (PR) that introduced or extended it. */
-  prs: number[]
-  /** Issues it closes or belongs to. */
-  issues: number[]
-  /** Repository slug the branch, PRs and issues live in. */
-  repo: string
-  status: 'in-main' | 'awaiting-merge' | 'not-ported'
-}
-
 export interface NavLink {
   kind: 'link'
   id: ActiveTab
   label: string
   icon: string
-  provenance?: NavProvenance
 }
 
 export interface NavAccordion {
@@ -42,7 +24,6 @@ export interface NavAccordion {
   label: string
   icon: string
   children: NavLink[]
-  provenance?: NavProvenance
 }
 
 export type NavEntry = NavLink | NavAccordion
@@ -54,36 +35,16 @@ export interface NavGroup {
   entries: NavEntry[]
 }
 
-/**
- * Resale metadata on an API key (F-14 in docs/keirouter-port-plan.md) already
- * ships in the Endpoint & Key page: `expiry`/`usedCount` and the per-key
- * `rateLimitRPM/TPM/concurrency` columns.
- */
-const RESALE_KEY_METADATA: NavProvenance = {
-  summary:
-    'Per-key resale metadata: expiry, usedCount and rateLimitRPM/TPM/concurrency on Endpoint & Key.',
-  branch: 'main',
-  prs: [185, 316, 342],
-  issues: [176],
-  repo: 'luqman-v1/9router-go',
-  status: 'in-main',
-}
-
-/**
- * Plans (F-3 in docs/keirouter-port-plan.md): reusable policy templates every
- * API key inherits from. Merged on main as PR #354 from the branch below.
- */
-const PLANS: NavProvenance = {
-  summary: 'Reusable policy templates (rate limits, budgets, model access) an API key inherits.',
-  branch: 'feat/plans-policy-resolver',
-  prs: [354],
-  issues: [176],
-  repo: 'luqman-v1/9router-go',
-  status: 'in-main',
-}
-
 /** Sidebar entries the panel must never hide: the panel lives behind Settings. */
 export const ALWAYS_VISIBLE_NAV_IDS: readonly string[] = ['settings']
+
+/**
+ * A deployment that never saved a hide list starts with Security and Plans
+ * hidden: most operators open neither, and both stay one switch away in
+ * Settings. Only an absent or unreadable stored list falls back here — an
+ * explicit empty list means the operator restored every entry.
+ */
+export const DEFAULT_HIDDEN_NAV_IDS: readonly string[] = ['security', 'plans']
 
 /** Mirrors the server's cap in internal/handlers/dashboard/navvisibility.go. */
 const MAX_HIDDEN_NAV_ENTRIES = 32
@@ -93,7 +54,7 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     id: 'main',
     entries: [
-      { kind: 'link', id: 'endpoint', label: 'Endpoint & Key', icon: 'api', provenance: RESALE_KEY_METADATA },
+      { kind: 'link', id: 'endpoint', label: 'Endpoint & Key', icon: 'api' },
       { kind: 'link', id: 'connections', label: 'Providers', icon: 'dns' },
       { kind: 'link', id: 'combos', label: 'Combo & Vision Adapter', icon: 'layers' },
       { kind: 'link', id: 'analytics', label: 'Usage', icon: 'bar_chart' },
@@ -126,59 +87,19 @@ export const NAV_GROUPS: NavGroup[] = [
       { kind: 'link', id: 'console-log', label: 'Console Log', icon: 'terminal' },
       { kind: 'link', id: 'settings', label: 'Settings', icon: 'settings' },
       { kind: 'link', id: 'security', label: 'Security', icon: 'shield_lock' },
-      { kind: 'link', id: 'plans', label: 'Plans', icon: 'workspace_premium', provenance: PLANS },
+      { kind: 'link', id: 'plans', label: 'Plans', icon: 'workspace_premium' },
     ],
   },
 ]
 
 /**
- * Features from the KeiRouter port that have no sidebar entry to toggle, so the
- * panel can only name where they live. An operator hiding "the selling system"
- * has to be able to see which branch carries that code and which PR or issue
- * tracks it.
+ * The entries the panel offers. Settings is left out rather than rendered
+ * disabled: it is the page the panel lives on, so it can never be hidden.
  */
-export interface UpcomingNavFeature {
-  id: string
-  label: string
-  provenance: NavProvenance
-}
-
-export const NOT_ON_MAIN_NAV_FEATURES: UpcomingNavFeature[] = [
-  {
-    id: 'usage-portal',
-    label: 'Public usage portal (selling system)',
-    provenance: {
-      summary:
-        'The page a key buyer logs into to read their own usage (F-8). Not implemented, so it has no branch.',
-      plan: 'docs/keirouter-port-plan.md §F-8',
-      prs: [],
-      issues: [176],
-      repo: 'luqman-v1/9router-go',
-      status: 'not-ported',
-    },
-  },
-]
-
-/**
- * The provenance note the panel renders under an entry: the branch and the PRs
- * when the feature shipped, the port-plan section when it is only specified.
- * Every note names a branch or a plan plus the PRs or issues that track it,
- * which is what the panel has to state.
- */
-export function provenanceNote(provenance: NavProvenance): string {
-  const refs: string[] = []
-  if (provenance.prs.length > 0) refs.push(`PR ${provenance.prs.map((n) => `#${n}`).join(', ')}`)
-  if (provenance.issues.length > 0) {
-    refs.push(`issue ${provenance.issues.map((n) => `#${n}`).join(', ')}`)
-  }
-  const where = refs.length > 0 ? ` — ${refs.join(', ')} in ${provenance.repo}` : ` in ${provenance.repo}`
-  const origin = provenance.plan
-    ? `Specified in ${provenance.plan}`
-    : provenance.branch
-      ? `Carried by branch ${provenance.branch}`
-      : 'No branch or plan recorded'
-  return `${origin}${where}.`
-}
+export const HIDEABLE_NAV_GROUPS: NavGroup[] = NAV_GROUPS.map((group) => ({
+  ...group,
+  entries: group.entries.filter((entry) => !ALWAYS_VISIBLE_NAV_IDS.includes(entry.id)),
+})).filter((group) => group.entries.length > 0)
 
 /** Every entry id in render order, accordions before their children. */
 export const NAV_ORDER: string[] = NAV_GROUPS.flatMap((group) =>
@@ -220,17 +141,17 @@ function buildTabOwners(): Record<string, string[]> {
 }
 
 /**
- * Coerces whatever the server stored into a usable hide list, mirroring
- * internal/handlers/dashboard/navvisibility.go. The server only checks the
- * shape; the sidebar entry list lives here, so an id that addresses no entry is
- * dropped rather than stored as dead configuration.
- *
- * Accepts both the stored `{ hidden: [...] }` object and a bare array, because
- * every helper below hands its own working list back in.
+ * The stored list, or null when nothing usable was stored. Accepts both the
+ * `{ hidden: [...] }` object the server returns and a bare array, because the
+ * helpers below hand their own working list back in.
  */
-export function normalizeHiddenNav(value: unknown): string[] {
+function storedHiddenIds(value: unknown): unknown[] | null {
   const raw = Array.isArray(value) ? value : (value as { hidden?: unknown } | null | undefined)?.hidden
-  if (!Array.isArray(raw)) return []
+  return Array.isArray(raw) ? raw : null
+}
+
+/** Keeps only the ids that address a sidebar entry, in stored order. */
+function cleanHiddenIds(raw: readonly unknown[]): string[] {
   const hidden: string[] = []
   for (const item of raw) {
     if (typeof item !== 'string') continue
@@ -243,6 +164,16 @@ export function normalizeHiddenNav(value: unknown): string[] {
     hidden.push(id)
   }
   return hidden
+}
+
+/**
+ * Coerces whatever the server stored into a usable hide list, mirroring
+ * internal/handlers/dashboard/navvisibility.go. The server only checks the
+ * shape; the sidebar entry list lives here, so an id that addresses no entry is
+ * dropped rather than stored as dead configuration.
+ */
+export function normalizeHiddenNav(value: unknown): string[] {
+  return cleanHiddenIds(storedHiddenIds(value) ?? DEFAULT_HIDDEN_NAV_IDS)
 }
 
 /** Store the list in render order, so the saved JSON stays stable and readable. */

@@ -2,30 +2,30 @@ import { describe, expect, it } from 'bun:test'
 import { TAB_ROUTES } from './router'
 import {
   ALWAYS_VISIBLE_NAV_IDS,
+  DEFAULT_HIDDEN_NAV_IDS,
+  HIDEABLE_NAV_GROUPS,
   NAV_GROUPS,
   NAV_ORDER,
-  NOT_ON_MAIN_NAV_FEATURES,
   isNavHidden,
   isNavLinkActive,
   normalizeHiddenNav,
-  provenanceNote,
   setNavVisible,
   visibleNavGroups,
   type NavEntry,
 } from './nav'
 
 const links: Extract<NavEntry, { kind: 'link' }>[] = NAV_GROUPS.flatMap((group) =>
-  group.entries.flatMap((entry) =>
-    entry.kind === 'accordion' ? entry.children : [entry]
-  )
+  group.entries.flatMap((entry) => (entry.kind === 'accordion' ? entry.children : [entry]))
 )
 
-const renderedIds = (hidden: unknown): string[] =>
-  visibleNavGroups(hidden).flatMap((group) =>
+const groupIds = (groups = NAV_GROUPS): string[] =>
+  groups.flatMap((group) =>
     group.entries.flatMap((entry) =>
       entry.kind === 'accordion' ? [entry.id, ...entry.children.map((child) => child.id)] : [entry.id]
     )
   )
+
+const renderedIds = (hidden: unknown): string[] => groupIds(visibleNavGroups(hidden))
 
 const MEDIA_CHILD_IDS = NAV_GROUPS.flatMap((group) =>
   group.entries.flatMap((entry) => (entry.kind === 'accordion' ? entry.children.map((c) => c.id) : []))
@@ -45,11 +45,41 @@ describe('nav model', () => {
     expect(NAV_ORDER.length).toBeGreaterThan(0)
   })
 
+  it('offers every entry to the panel except the ones it may not hide', () => {
+    expect(groupIds(HIDEABLE_NAV_GROUPS)).toEqual(
+      NAV_ORDER.filter((id) => !ALWAYS_VISIBLE_NAV_IDS.includes(id))
+    )
+  })
+
   it('keeps the panel behind an entry it can never hide', () => {
     expect(ALWAYS_VISIBLE_NAV_IDS).toContain('settings')
     expect(renderedIds({ hidden: ['settings'] })).toContain('settings')
     expect(normalizeHiddenNav({ hidden: ['settings'] })).toEqual([])
     expect(setNavVisible([], 'settings', false)).toEqual([])
+  })
+})
+
+describe('default visibility', () => {
+  it('hides Security and Plans until a list is saved', () => {
+    expect([...DEFAULT_HIDDEN_NAV_IDS]).toEqual(['security', 'plans'])
+    for (const saved of [undefined, null, {}, 'plans', { hidden: 'plans' }]) {
+      const ids = renderedIds(saved)
+      expect(ids, JSON.stringify(saved)).not.toContain('security')
+      expect(ids, JSON.stringify(saved)).not.toContain('plans')
+      expect(ids, JSON.stringify(saved)).toContain('settings')
+    }
+  })
+
+  it('treats an explicit empty list as "show everything"', () => {
+    expect(normalizeHiddenNav({ hidden: [] })).toEqual([])
+    expect(renderedIds({ hidden: [] })).toEqual(NAV_ORDER)
+  })
+
+  it('blocks the default-hidden tabs until the operator restores them', () => {
+    expect(isNavHidden('plans', undefined)).toBe(true)
+    expect(isNavHidden('security', undefined)).toBe(true)
+    expect(isNavHidden('security', { hidden: [] })).toBe(false)
+    expect(isNavHidden('plans', { hidden: ['plans'] })).toBe(true)
   })
 })
 
@@ -86,18 +116,22 @@ describe('visibility filtering', () => {
 
   it('ignores ids it cannot address and lower-cases the rest', () => {
     expect(normalizeHiddenNav({ hidden: ['QUOTA', 'not-an-entry', 7, 'quota'] })).toEqual(['quota'])
-    expect(normalizeHiddenNav({ hidden: 'quota' })).toEqual([])
-    expect(normalizeHiddenNav(null)).toEqual([])
+    expect(normalizeHiddenNav({ hidden: 'quota' })).toEqual([...DEFAULT_HIDDEN_NAV_IDS])
     expect(renderedIds({ hidden: ['not-an-entry'] })).toEqual(NAV_ORDER)
   })
 })
 
 describe('stored hide list', () => {
   it('stores ids in render order', () => {
-    const first = setNavVisible([], 'security', false)
+    const first = setNavVisible({ hidden: [] }, 'security', false)
     expect(first).toEqual(['security'])
     expect(setNavVisible(first, 'quota', false)).toEqual(['quota', 'security'])
     expect(setNavVisible(['quota', 'security'], 'quota', true)).toEqual(['security'])
+  })
+
+  it('starts from the defaults when nothing was saved', () => {
+    expect(setNavVisible(undefined, 'plans', true)).toEqual(['security'])
+    expect(setNavVisible(undefined, 'quota', false)).toEqual(['quota', 'security', 'plans'])
   })
 
   it('survives a junk payload without losing a valid entry', () => {
@@ -124,7 +158,7 @@ describe('route guard', () => {
   it('never blocks the login page or an entry nobody hid', () => {
     expect(isNavHidden('login', { hidden: ['login'] })).toBe(false)
     expect(isNavHidden('quota', { hidden: [] })).toBe(false)
-    expect(isNavHidden('quota', null)).toBe(false)
+    expect(isNavHidden('endpoint', undefined)).toBe(false)
   })
 })
 
@@ -135,58 +169,5 @@ describe('active highlighting', () => {
     expect(isNavLinkActive('analytics', 'usage-cache')).toBe(true)
     expect(isNavLinkActive('analytics', 'usage-compression')).toBe(true)
     expect(isNavLinkActive('quota', 'analytics')).toBe(false)
-  })
-})
-
-describe('feature provenance notes', () => {
-  const noted = [
-    ...NAV_GROUPS.flatMap((group) =>
-      group.entries.filter((entry) => entry.provenance !== undefined)
-    ).map((entry) => ({ label: entry.label, provenance: entry.provenance! })),
-    ...NOT_ON_MAIN_NAV_FEATURES.map((feature) => ({
-      label: feature.label,
-      provenance: feature.provenance,
-    })),
-  ]
-
-  it('names a branch or a plan, plus a PR or issue, for every noted feature', () => {
-    expect(noted.length).toBeGreaterThan(0)
-    for (const { label, provenance } of noted) {
-      expect(provenance.branch ?? provenance.plan, label).toBeTruthy()
-      expect(provenance.repo, label).toContain('/')
-      expect(provenance.prs.length + provenance.issues.length, label).toBeGreaterThan(0)
-      expect(provenance.summary.length, label).toBeGreaterThan(0)
-    }
-  })
-
-  it('points the selling system at the branch, PR and issue that carry it', () => {
-    const plans = links.find((link) => link.id === 'plans')
-    expect(plans?.provenance?.status).toBe('in-main')
-    expect(plans?.provenance?.branch).toBe('feat/plans-policy-resolver')
-    expect(plans?.provenance?.prs).toContain(354)
-    expect(plans?.provenance?.issues).toContain(176)
-
-    // The portal half has no branch yet, so its note names the port plan.
-    const portal = NOT_ON_MAIN_NAV_FEATURES.find((entry) => entry.id === 'usage-portal')
-    expect(portal?.provenance.status).toBe('not-ported')
-    expect(portal?.provenance.plan).toContain('F-8')
-    expect(portal?.provenance.issues).toContain(176)
-  })
-
-  it('points the resale metadata at the merged PRs on main', () => {
-    const endpoint = links.find((link) => link.id === 'endpoint')
-    expect(endpoint?.provenance?.status).toBe('in-main')
-    expect(endpoint?.provenance?.branch).toBe('main')
-    expect(endpoint?.provenance?.prs).toEqual([185, 316, 342])
-  })
-
-  it('renders a note that names the branch or plan, the PRs and the issue', () => {
-    const plans = links.find((link) => link.id === 'plans')
-    expect(provenanceNote(plans!.provenance!)).toBe(
-      'Carried by branch feat/plans-policy-resolver — PR #354, issue #176 in luqman-v1/9router-go.'
-    )
-    const portal = NOT_ON_MAIN_NAV_FEATURES[0]
-    expect(provenanceNote(portal.provenance)).toContain('docs/keirouter-port-plan.md §F-8')
-    expect(provenanceNote(portal.provenance)).toContain('issue #176')
   })
 })

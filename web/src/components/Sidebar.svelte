@@ -16,7 +16,7 @@
     showUpdateModal = $bindable(false),
     updateInfo = $bindable(null),
     version = $bindable(''),
-    hiddenNav = []
+    hiddenNav,
   }: {
     activeTab: ActiveTab
     navigate?: (tab: ActiveTab, replace?: boolean) => void
