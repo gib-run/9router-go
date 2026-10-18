@@ -26,6 +26,24 @@
   import { api, getAuthHeaders, responseErrorMessage, type DatabaseStats, type Settings } from '../api/client'
   import { isCompactUnitsEnabled, setCompactUnits } from '../lib/compactNumber'
   import { isDetailsExpandedByDefault, setDetailsExpandedByDefault } from '../lib/displayPrefs'
+  import {
+    USAGE_PANEL_FIXED_POSITION,
+    USAGE_PANEL_GROUPS,
+    USAGE_PANEL_ORDERABLE_GROUPS,
+    USAGE_PANEL_PRESETS,
+    type UsagePanelGroupId,
+    type UsagePanelId,
+    activeUsagePreset,
+    applyUsagePreset,
+    isPanelVisible,
+    movePanel,
+    panelOrder,
+    resetPanelOrder,
+    saveUsagePanels,
+    sendPanelTo,
+    setPanelVisible,
+    usagePanelsDirty,
+  } from '../lib/usagePanel.svelte'
   import { TOGGLEABLE_NAV_ENTRIES, orderHiddenNav, setNavVisible } from '../lib/nav'
   import {
     CURRENCY_CATALOG,
@@ -76,6 +94,70 @@
   // Usage detail panels (Activity Heatmap, Node Health) start collapsed; the
   // switch below flips that default (detailsExpandedByDefault, localStorage).
   let detailsExpanded = $state(isDetailsExpandedByDefault())
+  // Usage-page panel visibility and arrangement. The card below edits the draft
+  // in lib/usagePanel.svelte.ts; the global Save writes it with the rest of the
+  // form, so an edit there raises the same bottom-right reminder a switch does.
+  let panelPreset = $derived(activeUsagePreset())
+  let panelHint = $derived(
+    USAGE_PANEL_PRESETS.find((p) => p.id === panelPreset)?.hint ?? 'Custom selection'
+  )
+
+  // Drag-and-drop arrangement. A row's handle is the drag source and the row is
+  // the drop target, so a drag never starts from the toggle; the arrows stay as
+  // the keyboard path, since a drag has no keyboard equivalent. Both write the
+  // same draft, so one Save covers either.
+  let dragGroup = $state<UsagePanelGroupId | null>(null)
+  let dragId = $state<UsagePanelId | null>(null)
+  let dragTarget = $state<{ id: UsagePanelId; before: boolean } | null>(null)
+
+  function startPanelDrag(event: DragEvent, group: UsagePanelGroupId, id: UsagePanelId) {
+    dragGroup = group
+    dragId = id
+    dragTarget = null
+    if (event.dataTransfer) {
+      event.dataTransfer.effectAllowed = 'move'
+      event.dataTransfer.setData('text/plain', id)
+    }
+  }
+
+  // Which half of the row the pointer is over decides whether the panel lands
+  // above or below it, which is the only drop feedback the list needs.
+  function trackPanelDrop(event: DragEvent, group: UsagePanelGroupId, id: UsagePanelId) {
+    if (dragGroup !== group || !dragId || dragId === id) return
+    event.preventDefault()
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
+    dragTarget = { id, before: event.clientY < rect.top + rect.height / 2 }
+  }
+
+  function leavePanelDrop(event: DragEvent, id: UsagePanelId) {
+    const row = event.currentTarget as HTMLElement
+    if (dragTarget?.id === id && !row.contains(event.relatedTarget as Node | null)) dragTarget = null
+  }
+
+  function dropPanelOn(event: DragEvent, group: UsagePanelGroupId, id: UsagePanelId) {
+    if (dragGroup !== group || !dragId) return
+    event.preventDefault()
+    sendPanelTo(group, dragId, id, dragTarget?.id === id ? dragTarget.before : true)
+    endPanelDrag()
+    markUnsaved()
+  }
+
+  function endPanelDrag() {
+    dragGroup = null
+    dragId = null
+    dragTarget = null
+  }
+
+  /**
+   * The card has no Save of its own. Presets, the arrange buttons and a drop are
+   * not switch clicks, so they raise the settings reminder themselves — the same
+   * one the toggle below raises through the form's click handler.
+   */
+  function markPanelEdit(apply: () => void) {
+    apply()
+    markUnsaved()
+  }
   let stickyRoundRobinLimit = $state(3)
   let comboStrategy = $state('first-model')
   let forceFallback = $state(false)
@@ -338,6 +420,9 @@
         samlLoginLabel,
         displayCurrency: currencySetting(),
       })
+      // The arrangement is a localStorage preference, so it is written only once
+      // the settings it was edited alongside have been kept.
+      if (usagePanelsDirty()) saveUsagePanels()
       saveSuccess = true
       showSaveHint = false
       if (saveHintTimer) clearTimeout(saveHintTimer)
@@ -665,6 +750,136 @@
           />
         </div>
       {/each}
+    </Card>
+    <!-- SECTION: Usage dashboard. Per-panel visibility and arrangement for every
+         Usage section (Overview, Details, Cache Analytics, Compression
+         Analytics). The card has no Save of its own on purpose: the presets, the
+         toggles, the arrows and a drag all raise the global reminder, and the
+         global Save writes the arrangement with the rest of the form. -->
+    <Card padding="md" class="space-y-4">
+      <div class="flex items-center justify-between gap-2 pb-2 border-b border-border">
+        <div class="flex items-center gap-2">
+          <Sliders class="w-4 h-4 text-brand-500" />
+          <h2 class="text-sm font-bold text-text-main">Usage dashboard</h2>
+        </div>
+      </div>
+      <div class="space-y-4">
+        <div class="space-y-2">
+          <div class="flex flex-wrap items-center gap-2">
+            {#each USAGE_PANEL_PRESETS as preset (preset.id)}
+              <button
+                type="button"
+                title={preset.hint}
+                aria-pressed={panelPreset === preset.id}
+                onclick={() => markPanelEdit(() => applyUsagePreset(preset.id))}
+                class="rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition-colors cursor-pointer {panelPreset ===
+                preset.id
+                  ? 'border-primary bg-primary/10 text-primary'
+                  : 'border-border text-text-muted hover:border-primary/40 hover:text-text-main'}"
+              >
+                {preset.label}
+              </button>
+            {/each}
+            {#if panelPreset === 'custom'}
+              <span
+                class="rounded-lg border border-primary/40 bg-primary/10 px-2.5 py-1 text-[11px] font-semibold text-primary"
+              >
+                Custom
+              </span>
+            {/if}
+          </div>
+          <p class="text-[11px] text-text-subtle">{panelHint}</p>
+        </div>
+        {#each USAGE_PANEL_GROUPS as group (group.id)}
+          {@const orderable = USAGE_PANEL_ORDERABLE_GROUPS.includes(group.id)}
+          <div class="space-y-2">
+            <div class="flex items-center justify-between gap-2">
+              <p class="text-[10px] font-semibold uppercase tracking-wider text-text-subtle">
+                {group.label}
+              </p>
+              {#if orderable}
+                <button
+                  type="button"
+                  onclick={() => markPanelEdit(() => resetPanelOrder(group.id))}
+                  class="text-[10px] font-medium text-text-muted transition-colors hover:text-text-main cursor-pointer"
+                >
+                  Reset order
+                </button>
+              {:else}
+                <span class="text-[10px] text-text-subtle">Order fixed by the layout</span>
+              {/if}
+            </div>
+            {#each panelOrder(group.id) as itemId, index (itemId)}
+              {@const item = group.items.find((candidate) => candidate.id === itemId)}
+              {@const fixed = USAGE_PANEL_FIXED_POSITION[itemId]}
+              {@const grabbable = orderable && !fixed}
+              {@const landing = dragTarget?.id === itemId && dragId !== itemId}
+              <div
+                class="relative flex items-center justify-between gap-3 rounded-md px-1 py-1 {dragId ===
+                itemId
+                  ? 'opacity-40'
+                  : ''}"
+                ondragover={(event) => trackPanelDrop(event, group.id, itemId)}
+                ondragleave={(event) => leavePanelDrop(event, itemId)}
+                ondrop={(event) => dropPanelOn(event, group.id, itemId)}
+              >
+                {#if landing}
+                  <div
+                    class="pointer-events-none absolute inset-x-0 h-0.5 bg-primary {dragTarget?.before
+                      ? 'top-0'
+                      : 'bottom-0'}"
+                  ></div>
+                {/if}
+                <div class="flex min-w-0 items-center gap-1.5">
+                  {#if grabbable}
+                    <span
+                      class="material-symbols-outlined cursor-grab text-[14px] text-text-subtle active:cursor-grabbing"
+                      title="Drag to reorder"
+                      aria-hidden="true"
+                      draggable="true"
+                      ondragstart={(event) => startPanelDrag(event, group.id, itemId)}
+                      ondragend={endPanelDrag}>drag_indicator</span
+                    >
+                  {/if}
+                  <p class="min-w-0 text-xs text-text-main">{item?.label}</p>
+                </div>
+                <div class="flex items-center gap-2">
+                  {#if orderable}
+                    <div class="flex items-center gap-0.5">
+                      <button
+                        type="button"
+                        title={fixed ?? 'Move up'}
+                        aria-label="Move {item?.label} up"
+                        disabled={Boolean(fixed) || index === 0}
+                        onclick={() => markPanelEdit(() => movePanel(group.id, itemId, -1))}
+                        class="rounded p-0.5 text-text-muted transition-colors hover:text-text-main disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                      >
+                        <span class="material-symbols-outlined text-[14px]">arrow_upward</span>
+                      </button>
+                      <button
+                        type="button"
+                        title={fixed ?? 'Move down'}
+                        aria-label="Move {item?.label} down"
+                        disabled={Boolean(fixed) || index === panelOrder(group.id).length - 1}
+                        onclick={() => markPanelEdit(() => movePanel(group.id, itemId, 1))}
+                        class="rounded p-0.5 text-text-muted transition-colors hover:text-text-main disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                      >
+                        <span class="material-symbols-outlined text-[14px]">arrow_downward</span>
+                      </button>
+                    </div>
+                  {/if}
+                  <Toggle
+                    checked={isPanelVisible(itemId)}
+                    size="sm"
+                    label={item?.label ?? itemId}
+                    onChange={(val: boolean) => setPanelVisible(itemId, val)}
+                  />
+                </div>
+              </div>
+            {/each}
+          </div>
+        {/each}
+      </div>
     </Card>
     <!-- SECTION 1: Runtime Storage -->
     <Card padding="md" class="space-y-4">

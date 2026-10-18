@@ -10,6 +10,8 @@
   import ActivityHeatmap from './ActivityHeatmap.svelte'
   import NodeHealthTable from './NodeHealthTable.svelte'
   import { isDetailsExpandedByDefault } from '../../lib/displayPrefs'
+  import { usageBlocks } from '../../lib/usagePanel.svelte'
+  import { USAGE_PANEL_FIXED_POSITION } from '../../lib/usagePanel'
 
   let data = $state<UsageDashboardResponse | null>(null)
   let loading = $state(true)
@@ -69,6 +71,14 @@
       },
     ]
   })
+
+  // The Details arrangement. The paged request table and the payload dialog keep
+  // fixed positions (USAGE_PANEL_FIXED_POSITION): the table is drawn by
+  // RequestDetailsTab below this stack, and the dialog is an overlay, so only the
+  // panels above the table are arranged here.
+  const detailBlocks = $derived(
+    usageBlocks('details').filter((block) => !USAGE_PANEL_FIXED_POSITION[block.ids[0]])
+  )
 </script>
 
 <div class="flex min-w-0 flex-col gap-6">
@@ -84,6 +94,8 @@
       <p class="py-6 text-center text-sm text-text-muted">Failed to load usage dashboard</p>
     </Card>
   {:else}
+    {#each detailBlocks as block (block.key)}
+      {#if block.key === 'details.lifetime'}
     {#if cards.length > 0}
       <div class="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 sm:gap-4">
         {#each cards as c (c.label)}
@@ -104,6 +116,7 @@
         {/each}
       </div>
     {/if}
+      {:else if block.key === 'details.heatmap'}
 
     <Card padding="none" class="overflow-hidden border border-border">
       <div
@@ -123,6 +136,7 @@
         </div>
       {/if}
     </Card>
+      {:else if block.key === 'details.nodeHealth'}
     <Card padding="none" class="overflow-hidden border border-border">
       <div
         class="flex flex-col gap-3 bg-surface-2 px-5 py-3 sm:flex-row sm:items-center sm:justify-between {healthOpen
@@ -141,6 +155,8 @@
         </div>
       {/if}
     </Card>
+      {/if}
+    {/each}
   {/if}
 </div>
 

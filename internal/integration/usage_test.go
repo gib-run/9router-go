@@ -75,7 +75,7 @@ func TestFailedRequestIsNotCountedAsSpend(t *testing.T) {
 	}
 
 	// The failure still has to be visible for debugging.
-	details, total, err := env.Repo.GetRequestDetailsPaged(10, 0)
+	details, total, err := env.Repo.GetRequestDetailsPaged(10, 0, "")
 	if err != nil {
 		t.Fatalf("read request details: %v", err)
 	}

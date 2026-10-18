@@ -1680,8 +1680,11 @@ export const api = {
     ),
   /** Details-section dashboard payload: heatmap days, lifetime cards, node health. */
   getUsageDashboard: () => request<UsageDashboardResponse>('/api/usage/dashboard'),
-  getRequestDetails: (limit = 50, offset = 0) =>
-    request<any>(`/api/usage/request-details?limit=${limit}&offset=${offset}`),
+  /** Paged request rows; period windows the server query (?period=<preset|n>d|n>h). */
+  getRequestDetails: (limit = 50, offset = 0, period = '') =>
+    request<any>(
+      `/api/usage/request-details?limit=${limit}&offset=${offset}${period ? `&period=${encodeURIComponent(period)}` : ''}`
+    ),
   /** Full stored payload for one request; the list omits request/response bodies. */
   getRequestDetail: (id: string) => request<any>(`/api/usage/request-details/${encodeURIComponent(id)}`),
   resetHealth: (provider: string, model?: string) =>

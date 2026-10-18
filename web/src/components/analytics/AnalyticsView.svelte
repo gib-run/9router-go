@@ -26,6 +26,7 @@
   import UsageChart from './UsageChart.svelte'
   import ProviderTopologyCard from './ProviderTopologyCard.svelte'
   import ComboFlowCard from './ComboFlowCard.svelte'
+  import { usageBlocks } from '../../lib/usagePanel.svelte'
   import { emailPrivacy, formatEmailLabel } from '../../lib/privacy'
   interface Props {
     connections?: ProviderConnection[]
@@ -137,13 +138,13 @@
     }
   }
 
-  async function loadDetails(page = 1) {
+  async function loadDetails(page = 1, window: Period = period) {
     detailsLoading = true
     detailsError = ''
     try {
       const limit = 20
       const offset = (page - 1) * limit
-      const res = await api.getRequestDetails(limit, offset)
+      const res = await api.getRequestDetails(limit, offset, window)
       if (res && Array.isArray(res.details)) {
         details = res.details
         detailsTotal = res.total || 0
@@ -165,7 +166,7 @@
   })
 
   $effect(() => {
-    if (section === 'details') loadDetails(detailsPage)
+    if (section === 'details') loadDetails(detailsPage, period)
   })
 
   // Loaded once: editing a combo is rare, and a reload picks up the change.
@@ -418,17 +419,17 @@
 
 
 <div class="flex min-w-0 flex-col gap-6 px-1 sm:px-0">
-  <!-- The section picker and the window selector the Overview needs. Cache
-       Analytics and Compression Analytics each put the picker in their own
-       header, beside the controls they own (issue #209); Details reads its
-       window from the shared Usage page. -->
+  <!-- The section picker and the window selector. Cache Analytics and
+       Compression Analytics each put the picker in their own header, beside the
+       controls they own (issue #209). Details shares this row's control, which
+       windows the request table through ?period; the panels above it keep the
+       window they label in place (lifetime is all time, Node Health is 7 days),
+       so no number here changes meaning silently. -->
   {#if section === 'overview' || section === 'details'}
     <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       {@render sectionMenu()}
 
-      {#if section === 'overview'}
-        <PeriodSelect value={period} busy={isFetching} onChange={(next) => (period = next)} />
-      {/if}
+      <PeriodSelect value={period} busy={isFetching} onChange={(next) => (period = next)} />
     </div>
   {/if}
 
@@ -459,85 +460,37 @@
   {/if}
 
   {#if section === 'overview'}
-    <!-- 5 Overview KPI Cards -->
-    <SummaryKpiCards {stats} />
-
-    <!-- Combo flow: router -> combo -> members, only while a combo is in use
-         (or just finished). The provider map below keeps its own animation. -->
-    <ComboFlowCard
-      combos={comboDefs}
-      {activeRequests}
-      recentRequests={stats.recentRequests || []}
-      {errorProvider}
-    />
-
-    <!-- Topology + Recent Requests -->
-    <div class="grid min-w-0 grid-cols-1 items-stretch gap-2 lg:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
-      <ProviderTopologyCard
-        providers={topologyProviders}
-        {activeRequests}
-        {pulseProvider}
-        {lastProvider}
-        {errorProvider}
-        onRefresh={() => loadStats(period)}
-      />
-      <!-- Recent Requests Card -->
-      <div class="bg-surface border border-border-subtle rounded-[14px] shadow-[var(--shadow-soft)] p-4 flex min-w-0 flex-col overflow-hidden" style="height: 480px">
-        <div class="px-1 py-2 border-b border-border shrink-0">
-          <span class="text-xs font-semibold text-text-muted uppercase tracking-wide">Recent Requests</span>
+    <!-- The panels of this section, in the arrangement Settings holds. A block
+         is one panel, except for the map + Recent Requests row: those two share
+         one grid row while both are visible and adjacent, and fall apart into
+         full-width blocks once the arrangement separates them. -->
+    {#each usageBlocks('overview') as block (block.key)}
+      {#if block.key === 'overview.kpi'}
+        <SummaryKpiCards {stats} />
+      {:else if block.key === 'overview.comboFlow'}
+        <!-- Combo flow: router -> combo -> members, only while a combo is in use
+             (or just finished). The provider map keeps its own animation. -->
+        <ComboFlowCard
+          combos={comboDefs}
+          {activeRequests}
+          recentRequests={stats.recentRequests || []}
+          {errorProvider}
+        />
+      {:else if block.key === 'overview.topology+overview.recent'}
+        <div class="grid min-w-0 grid-cols-1 items-stretch gap-2 lg:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
+          {@render topologyMap()}
+          {@render recentRequestsCard()}
         </div>
-
-        {#if !stats.recentRequests || stats.recentRequests.length === 0}
-          <div class="flex-1 flex items-center justify-center text-text-muted text-xs">
-            No requests recorded yet.
-          </div>
-        {:else}
-          <div class="flex-1 overflow-y-auto">
-            <table class="w-full table-fixed min-w-[280px] border-collapse text-xs">
-              <colgroup>
-                <col class="w-[20px]" />
-                <col />
-                <col class="w-[96px]" />
-                <col class="w-[56px]" />
-              </colgroup>
-              <thead class="sticky top-0 bg-bg z-10">
-                <tr class="border-b border-border">
-                  <th class="py-1.5 pl-3 text-left font-semibold text-text-muted"></th>
-                  <th class="py-1.5 text-left font-semibold text-text-muted">Model</th>
-                  <th class="py-1.5 text-right font-semibold text-text-muted whitespace-nowrap">In / Out</th>
-                  <th class="py-1.5 pr-3 text-right font-semibold text-text-muted whitespace-nowrap">When</th>
-                </tr>
-              </thead>
-              <tbody class="divide-y divide-border/50 font-mono text-[11px]">
-                {#each stats.recentRequests as req}
-                  <tr class="hover:bg-bg-subtle transition-colors">
-                    <td class="py-1.5 pl-3 align-middle">
-                      <span class="mx-auto block w-1.5 h-1.5 rounded-full {req.status === 'ok' || req.status === 'success' ? 'bg-success' : 'bg-red-500'}"></span>
-                    </td>
-                    <td class="py-1.5 pr-2 min-w-0">
-                      <span class="block truncate font-mono text-[11px]" title={req.model}>{req.model}</span>
-                    </td>
-                    <td class="py-1.5 pr-3 text-right whitespace-nowrap">
-                      <span class="text-primary">{fmt(req.promptTokens)}↑</span>
-                      <span class="text-success">{fmt(req.completionTokens)}↓</span>
-                    </td>
-                    <td class="py-1.5 pr-3 text-right text-text-muted whitespace-nowrap text-[10px]">
-                      {timeAgo(req.timestamp)}
-                    </td>
-                  </tr>
-                {/each}
-              </tbody>
-            </table>
-          </div>
-        {/if}
-      </div>
-    </div>
-
-    <!-- Usage trend visualization, under Recent Requests and above the usage filter -->
-    <UsageChart {period} />
-
-    <!-- Breakdown Table -->
-    <UsageBreakdownTable {stats} />
+      {:else if block.key === 'overview.topology'}
+        {@render topologyMap()}
+      {:else if block.key === 'overview.recent'}
+        {@render recentRequestsCard()}
+      {:else if block.key === 'overview.trend'}
+        <UsageChart {period} />
+      {:else if block.key === 'overview.breakdown'}
+        <UsageBreakdownTable {stats} />
+      {/if}
+    {/each}
   {:else if section === 'cache'}
     <CacheAnalyticsView>
       {#snippet headerLeft()}
@@ -564,3 +517,72 @@
     />
   {/if}
 </div>
+{#snippet topologyMap()}
+  <ProviderTopologyCard
+    providers={topologyProviders}
+    {activeRequests}
+    {pulseProvider}
+    {lastProvider}
+    {errorProvider}
+    onRefresh={() => loadStats(period)}
+  />
+{/snippet}
+
+{#snippet recentRequestsCard()}
+  <div
+    class="bg-surface border border-border-subtle rounded-[14px] shadow-[var(--shadow-soft)] p-4 flex min-w-0 flex-col overflow-hidden"
+    style="height: 480px"
+  >
+    <div class="px-1 py-2 border-b border-border shrink-0">
+      <span class="text-xs font-semibold text-text-muted uppercase tracking-wide">Recent Requests</span>
+    </div>
+
+    {#if !stats.recentRequests || stats.recentRequests.length === 0}
+      <div class="flex-1 flex items-center justify-center text-text-muted text-xs">
+        No requests recorded yet.
+      </div>
+    {:else}
+      <div class="flex-1 overflow-y-auto">
+        <table class="w-full table-fixed min-w-[280px] border-collapse text-xs">
+          <colgroup>
+            <col class="w-[20px]" />
+            <col />
+            <col class="w-[96px]" />
+            <col class="w-[56px]" />
+          </colgroup>
+          <thead class="sticky top-0 bg-bg z-10">
+            <tr class="border-b border-border">
+              <th class="py-1.5 pl-3 text-left font-semibold text-text-muted"></th>
+              <th class="py-1.5 text-left font-semibold text-text-muted">Model</th>
+              <th class="py-1.5 text-right font-semibold text-text-muted whitespace-nowrap">In / Out</th>
+              <th class="py-1.5 pr-3 text-right font-semibold text-text-muted whitespace-nowrap">When</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-border/50 font-mono text-[11px]">
+            {#each stats.recentRequests as req}
+              <tr class="hover:bg-bg-subtle transition-colors">
+                <td class="py-1.5 pl-3 align-middle">
+                  <span
+                    class="mx-auto block w-1.5 h-1.5 rounded-full {req.status === 'ok' || req.status === 'success'
+                      ? 'bg-success'
+                      : 'bg-red-500'}"
+                  ></span>
+                </td>
+                <td class="py-1.5 pr-2 min-w-0">
+                  <span class="block truncate font-mono text-[11px]" title={req.model}>{req.model}</span>
+                </td>
+                <td class="py-1.5 pr-3 text-right whitespace-nowrap">
+                  <span class="text-primary">{fmt(req.promptTokens)}↑</span>
+                  <span class="text-success">{fmt(req.completionTokens)}↓</span>
+                </td>
+                <td class="py-1.5 pr-3 text-right text-text-muted whitespace-nowrap text-[10px]">
+                  {timeAgo(req.timestamp)}
+                </td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
+    {/if}
+  </div>
+{/snippet}
