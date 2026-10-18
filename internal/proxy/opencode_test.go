@@ -1,6 +1,7 @@
 package proxy_test
 
 import (
+	"strings"
 	"testing"
 
 	"9router/proxy/internal/proxy"
@@ -94,6 +95,39 @@ func TestOpenCodeCanonicalSession(t *testing.T) {
 	translated := proxy.TranslateOpenCodeSessionID("uuid-1234-5678-abcdef", "claude")
 	if !proxy.OpenCodeSessionRegex.MatchString(translated) || len(translated) != 30 {
 		t.Errorf("expected valid canonical session from foreign ID, got %s", translated)
+	}
+}
+
+func TestBuildOpenCodeHeaders_TraceHeaders(t *testing.T) {
+	headers := proxy.BuildOpenCodeHeaders(nil, "my-session-123", true)
+
+	var b3Key, tpKey string
+	for k, v := range headers {
+		if len(v) > 35 && strings.Count(v, "-") == 3 {
+			b3Key = k
+		}
+		if strings.HasPrefix(v, "00-") && len(v) == 55 {
+			tpKey = k
+		}
+	}
+
+	if b3Key == "" || headers[b3Key] == "" {
+		t.Errorf("invalid or missing b3 header key: %q", b3Key)
+	}
+	if tpKey == "" || headers[tpKey] == "" {
+		t.Errorf("invalid or missing traceparent header key: %q", tpKey)
+	}
+
+	customHeaders := map[string]string{
+		b3Key: "custom-b3",
+		tpKey: "00-custom-traceparent-01",
+	}
+	overridden := proxy.BuildOpenCodeHeaders(customHeaders, "my-session-123", true)
+	if overridden[b3Key] != "custom-b3" {
+		t.Errorf("b3 override failed: got %q (keys: %v)", overridden[b3Key], overridden)
+	}
+	if overridden[tpKey] != "00-custom-traceparent-01" {
+		t.Errorf("traceparent override failed: got %q (keys: %v)", overridden[tpKey], overridden)
 	}
 }
 
