@@ -174,7 +174,7 @@ func newOpencodeStealthClient(reference *http.Client) (*opencodeStealthClient, e
 		tls_client.WithNotFollowRedirects(),
 	}
 	if proxyURL := opencodeProxyFrom(reference); proxyURL != "" {
-		options = append(options, tls_client.WithProxyUrl(proxyURL))
+		options = append(options, tls_client.WithProxyUrl(strings.TrimRight(proxyURL, "/")))
 	}
 	client, err := tls_client.NewHttpClient(tls_client.NewNoopLogger(), options...)
 	if err != nil {
@@ -200,7 +200,7 @@ func opencodeProxyFrom(reference *http.Client) string {
 	if err != nil || proxyURL == nil {
 		return ""
 	}
-	return proxyURL.String()
+	return strings.TrimRight(proxyURL.String(), "/")
 }
 
 func getOpencodeStealthClient(reference *http.Client) (*opencodeStealthClient, error) {
