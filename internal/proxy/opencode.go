@@ -179,8 +179,8 @@ func BuildOpenCodeHeaders(rawHeaders map[string]string, sessionID string, isStre
 		"x-opencode-session-id": session,
 		"x-session-affinity":    session,
 		"x-session-id":          session,
-		b3:                      b3,
-		traceparent:             traceparent,
+		"b3":                    b3,
+		"traceparent":           traceparent,
 		// Upstream defaults the project to "global"
 		// (open-sse/executors/opencode.js buildHeaders).
 		"x-opencode-project": "global",
@@ -224,18 +224,16 @@ func BuildOpenCodeHeaders(rawHeaders map[string]string, sessionID string, isStre
 				res["x-opencode-project"] = trimmed
 			}
 		}
-		if lk == strings.ToLower(b3) || (len(k) > 35 && strings.Count(k, "-") == 3) {
+		if lk == "b3" {
 			trimmed := strings.TrimSpace(v)
 			if trimmed != "" {
-				res[b3] = trimmed
-				res[k] = trimmed
+				res["b3"] = trimmed
 			}
 		}
-		if lk == strings.ToLower(traceparent) || strings.HasPrefix(k, "00-") {
+		if lk == "traceparent" {
 			trimmed := strings.TrimSpace(v)
 			if trimmed != "" {
-				res[traceparent] = trimmed
-				res[k] = trimmed
+				res["traceparent"] = trimmed
 			}
 		}
 	}
