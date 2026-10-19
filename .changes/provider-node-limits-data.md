@@ -91,5 +91,51 @@ stamps) and 6 request-side tests (no slot for an unlimited provider, refusal is 
 memoised per request, fail-open on a read error, `lastError` written without a
 cooldown), plus `golangci-lint --new-from-rev` clean and `go test ./...` green.
 
+### feat(chat): refuse a custom provider whose contract expired or whose lifetime quota is spent
+
+The two provider-level limits that no queue can absorb — an expired contract and a
+spent lifetime token quota — are now enforced on the node itself, and enforced
+once: `providerNodeBlocked`/`providerNodeVerdict` in
+`internal/handlers/chat/provider_limits.go` is the only place a node's usability
+is decided, and both callers ask it. Candidate selection (`connections.go`,
+before strategy rotation) skips an unusable node, and dispatch
+(`acquireProviderAttempt`) asks the same helper **before** it touches the limiter,
+so a node skipped while picking a connection cannot be admitted when the request
+is forwarded, or the reverse. The verdict is memoised per request alongside the
+policy (`providerLimitState.verdicts`): one limit read and one ledger sum per
+node per request, not one per caller.
+
+The refusal's status now follows its axis instead of being 429 for everything:
+`contract` and `token_quota` answer **403** with
+`provider_contract_expired` / `provider_token_quota_exhausted`, while congestion
+stays **429** `rate_limit_exceeded`. No `Retry-After` is sent for a node state —
+waiting does not end a contract or give back quota. A spent quota means
+`used >= tokenQuota` (99 tokens under a 100 quota stays usable, 100 is refused);
+`ResetProviderQuota` makes the node usable again without a restart. When the
+ledger cannot be read the node is **failed open**: a storage blip must not drop a
+healthy provider out of rotation.
+
+Reason survives the combo path too: both combo selection-error sites capture the
+typed refusal and keep it as `lastErr`, instead of replacing the cause with
+"all combo models failed".
+
+Verified: 6 new cases in `internal/handlers/chat/provider_limits_test.go` — an
+expired contract is refused with 403 `provider_contract_expired` even with no
+congestion limits configured, a spent quota is refused at the exact boundary
+(3 subtests), a quota reset restores the node, an unreadable ledger fails open,
+selection skips an expired node, and an expired node as the only candidate
+answers 403 rather than `no active connections`. Test fixtures were moved to the
+production schema rather than the production code being loosened:
+`dbtest.CreateTables` now also creates the ledger tables (`EnsureLedgerTables`),
+and the fixture's `usageHistory` carries the `id INTEGER PRIMARY KEY AUTOINCREMENT`
+the quota reset mark reads.
+
+It also hardens `TestQueueIsFIFO`: it established enqueue order with a 5 ms sleep
+stagger, and a loaded machine broke that: goroutine 4 reached `Acquire` before
+2 and 3, so the recorder saw `0,1,4,2,3,…` and reported a FIFO violation the
+queue had not made. Each waiter now starts only once the previous one is parked
+(`waitParked`, white-box on the queue depth), so the test asserts the queue's
+fairness instead of the scheduler's timing: 50 consecutive runs pass, including
+20 with six CPU burners saturating the machine.
 Rename this file to `<pr-number>-provider-node-limits-data.md` when the PR is
 opened, so the fragment orders correctly in the dashboard changelog.

@@ -206,3 +206,168 @@ func TestRecordProviderLimit_DebugTrailWithoutACooldown(t *testing.T) {
 		t.Errorf("debug trail = %+v, want one entry for node-nara", attempts)
 	}
 }
+
+// seedNodeUsage inserts one usageHistory row attributed to a provider node, so a
+// lifetime quota has something to measure.
+func seedNodeUsage(t *testing.T, repo *db.Repo, nodeID string, tokens int) {
+	t.Helper()
+	if _, err := repo.RawDB().Exec(
+		`INSERT INTO usageHistory (timestamp, provider, model, connectionId, apiKey, endpoint, promptTokens, completionTokens, cost, status, tokens, meta)
+		 VALUES (?, ?, 'glm-5.3', 'conn-1', 'upstream-cred', '/v1/chat/completions', ?, 0, 0.01, 'success', '{}', '')`,
+		time.Now().UTC().Format(time.RFC3339), nodeID, tokens,
+	); err != nil {
+		t.Fatalf("seed node usage: %v", err)
+	}
+}
+
+// TestAcquireProviderAttempt_RefusesAnExpiredContract: node state is checked
+// before congestion and before the limiter, so a node with an expired contract is
+// refused even when it declares no RPM/TPM/concurrency at all. The status is 403 —
+// no amount of waiting ends a contract.
+func TestAcquireProviderAttempt_RefusesAnExpiredContract(t *testing.T) {
+	handler, repo := newProviderLimitHandler(t)
+	seedLimitedProviderNode(t, repo, "node-nara", db.ProviderLimits{
+		ContractExpiresAt: time.Now().UTC().Add(-24 * time.Hour).Format(time.RFC3339),
+	})
+	ctx := withProviderLimitState(context.Background())
+
+	slot, err := handler.acquireProviderAttempt(ctx, "node-nara", "glm-5.3", "conn-1", []byte(`{}`))
+	if slot != nil || err == nil {
+		t.Fatalf("attempt on an expired contract = slot %v err %v, want a refusal", slot, err)
+	}
+	var ue *upstreamError
+	if !errors.As(err, &ue) {
+		t.Fatalf("refusal = %T, want something errors.As can read as *upstreamError", err)
+	}
+	if ue.StatusCode != 403 {
+		t.Errorf("status = %d, want 403 (waiting cannot end a contract)", ue.StatusCode)
+	}
+	body := string(ue.Body)
+	for _, want := range []string{"provider_contract_expired", "node-nara", `"reason":"contract"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("refusal body misses %s: %s", want, body)
+		}
+	}
+}
+
+// TestAcquireProviderAttempt_RefusesASpentLifetimeQuota also pins the boundary: the
+// quota blocks at exactly the limit, not one token past it.
+func TestAcquireProviderAttempt_RefusesASpentLifetimeQuota(t *testing.T) {
+	tests := []struct {
+		name     string
+		used     int
+		wantDeny bool
+	}{
+		{name: "one token short stays usable", used: 99},
+		{name: "exactly the quota is spent", used: 100, wantDeny: true},
+		{name: "past the quota is spent", used: 150, wantDeny: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler, repo := newProviderLimitHandler(t)
+			seedLimitedProviderNode(t, repo, "node-nara", db.ProviderLimits{TokenQuota: 100})
+			seedNodeUsage(t, repo, "node-nara", tt.used)
+			ctx := withProviderLimitState(context.Background())
+
+			slot, err := handler.acquireProviderAttempt(ctx, "node-nara", "glm-5.3", "conn-1", []byte(`{}`))
+			if !tt.wantDeny {
+				if slot != nil || err != nil {
+					t.Fatalf("usable node = slot %v err %v, want nil/nil", slot, err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("a spent quota was admitted (slot %v)", slot)
+			}
+			var ue *upstreamError
+			if !errors.As(err, &ue) || ue.StatusCode != 403 {
+				t.Fatalf("refusal = %v, want a 403 upstream error", err)
+			}
+			if body := string(ue.Body); !strings.Contains(body, "provider_token_quota_exhausted") {
+				t.Errorf("refusal body does not name the exhausted quota: %s", body)
+			}
+		})
+	}
+}
+
+// TestAcquireProviderAttempt_QuotaResetRestoresTheNode: the reset is the operator's
+// lever, and it has to work without restarting anything.
+func TestAcquireProviderAttempt_QuotaResetRestoresTheNode(t *testing.T) {
+	handler, repo := newProviderLimitHandler(t)
+	seedLimitedProviderNode(t, repo, "node-nara", db.ProviderLimits{TokenQuota: 100})
+	seedNodeUsage(t, repo, "node-nara", 100)
+
+	ctx := withProviderLimitState(context.Background())
+	if _, err := handler.acquireProviderAttempt(ctx, "node-nara", "glm-5.3", "conn-1", []byte(`{}`)); err == nil {
+		t.Fatal("a spent quota was admitted")
+	}
+
+	if _, err := repo.ResetProviderQuota(context.Background(), "node-nara"); err != nil {
+		t.Fatalf("ResetProviderQuota: %v", err)
+	}
+	fresh := withProviderLimitState(context.Background())
+	slot, err := handler.acquireProviderAttempt(fresh, "node-nara", "glm-5.3", "conn-1", []byte(`{}`))
+	if slot != nil || err != nil {
+		t.Fatalf("after a quota reset = slot %v err %v, want the node usable again", slot, err)
+	}
+}
+
+// TestProviderNodeBlocked_FailsOpenWhenUsageCannotBeRead isolates the usage read:
+// the policy is cached, so the failure under test is the ledger sum and not the
+// policy read. A storage blip must not take a node out of rotation.
+func TestProviderNodeBlocked_FailsOpenWhenUsageCannotBeRead(t *testing.T) {
+	handler, repo := newProviderLimitHandler(t)
+	ctx := withProviderLimitState(context.Background())
+	state := providerLimitStateFrom(ctx)
+	limits := db.ProviderLimits{TokenQuota: 1}
+	state.cacheLimits("node-nara", limits)
+	if err := repo.RawDB().Close(); err != nil {
+		t.Fatalf("close database: %v", err)
+	}
+
+	if refusal, blocked := handler.providerNodeBlocked(ctx, state, "node-nara", limits); blocked {
+		t.Errorf("blocked on an unreadable ledger (%+v), want the node usable", refusal)
+	}
+}
+
+// TestGetBestConnection_SkipsAnUnusableNode pins the half of the "one decision,
+// two callers" rule that selection owns: the node must not be picked at all, and
+// when it is the only candidate the request must fail with the node's own reason
+// rather than an anonymous "no active connections".
+func TestGetBestConnection_SkipsAnUnusableNode(t *testing.T) {
+	handler, repo := newProviderLimitHandler(t)
+	if err := repo.CreateProviderConnectionFull("conn-nara", "node-nara", "apikey", "Nara",
+		nil, `{"apiKey":"sk-test-nara"}`); err != nil {
+		t.Fatalf("CreateProviderConnectionFull: %v", err)
+	}
+	ctx := withProviderLimitState(context.Background())
+
+	seedLimitedProviderNode(t, repo, "node-nara", db.ProviderLimits{
+		ContractExpiresAt: time.Now().UTC().Add(24 * time.Hour).Format(time.RFC3339),
+	})
+	conn, _, err := handler.getBestConnectionWithContext(ctx, "node-nara", "", nil, "glm-5.3")
+	if err != nil || conn == nil {
+		t.Fatalf("a usable node = conn %v err %v, want the connection", conn, err)
+	}
+
+	// Expire it, and ask with a fresh request state (the verdict is per request).
+	// The node row is updated rather than re-created: providerNodes.id is a primary
+	// key, and a second CreateProviderNode is a constraint error, not a second node.
+	if err := repo.SetProviderLimits(context.Background(), "node-nara", db.ProviderLimits{
+		ContractExpiresAt: time.Now().UTC().Add(-24 * time.Hour).Format(time.RFC3339),
+	}); err != nil {
+		t.Fatalf("SetProviderLimits: %v", err)
+	}
+	expired := withProviderLimitState(context.Background())
+	conn, _, err = handler.getBestConnectionWithContext(expired, "node-nara", "", nil, "glm-5.3")
+	if err == nil {
+		t.Fatalf("an expired node still produced a connection: %v", conn)
+	}
+	var ue *upstreamError
+	if !errors.As(err, &ue) || ue.StatusCode != 403 {
+		t.Fatalf("selection error = %v, want a typed 403 refusal", err)
+	}
+	if body := string(ue.Body); !strings.Contains(body, "provider_contract_expired") {
+		t.Errorf("selection refusal does not name the cause: %s", body)
+	}
+}

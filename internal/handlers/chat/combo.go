@@ -572,6 +572,20 @@ func (h *ChatHandler) handleComboFallback(ctx context.Context, w http.ResponseWr
 					var err error
 					picked, cData, err = h.getBestConnectionWithContext(ctx, modelInfo.Provider, modelInfo.ConnectionID, excludeIDs, modelInfo.Model)
 					if err != nil {
+						// A node the gateway refuses on purpose — expired contract,
+						// spent lifetime quota — must reach the client as that
+						// refusal rather than as an anonymous "all combo models
+						// failed": an operator can act on the first and not on the
+						// second.
+						if refusal, blocked := providerLimitRefusal(err); blocked {
+							log.Info("combo", "provider node unusable, next candidate",
+								"provider", modelInfo.Provider, "model", modelInfo.Model, "axis", refusal.Axis)
+							var refusedErr *upstreamError
+							errors.As(err, &refusedErr)
+							if refusedErr != nil {
+								lastErr = refusedErr
+							}
+						}
 						break
 					}
 					connID = picked.ID
@@ -822,6 +836,15 @@ func (h *ChatHandler) handleMessagesComboFallback(ctx context.Context, w http.Re
 					var err error
 					picked, cData, err = h.getBestConnectionWithContext(ctx, modelInfo.Provider, modelInfo.ConnectionID, excludeIDs, modelInfo.Model)
 					if err != nil {
+						if refusal, blocked := providerLimitRefusal(err); blocked {
+							log.Info("combo", "provider node unusable, next candidate",
+								"provider", modelInfo.Provider, "model", modelInfo.Model, "axis", refusal.Axis)
+							var refusedErr *upstreamError
+							errors.As(err, &refusedErr)
+							if refusedErr != nil {
+								lastErr = refusedErr
+							}
+						}
 						break
 					}
 					connID = picked.ID

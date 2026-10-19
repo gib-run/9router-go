@@ -67,6 +67,11 @@ type providerLimitState struct {
 	limits   map[string]db.ProviderLimits
 	refused  map[string]providerLimitAttempt
 	attempts []providerLimitAttempt
+	// verdicts caches each node's state (contract still valid, lifetime quota
+	// unspent) for the life of the request. A nil entry means usable; the map is
+	// separate from refused because a verdict is a fact about the node, not about
+	// a refusal this request has already suffered.
+	verdicts map[string]*providerLimitAttempt
 }
 
 type providerLimitStateKey struct{}
@@ -85,8 +90,9 @@ func withProviderLimitState(ctx context.Context) context.Context {
 		return ctx
 	}
 	return context.WithValue(ctx, providerLimitStateKey{}, &providerLimitState{
-		limits:  map[string]db.ProviderLimits{},
-		refused: map[string]providerLimitAttempt{},
+		limits:   map[string]db.ProviderLimits{},
+		refused:  map[string]providerLimitAttempt{},
+		verdicts: map[string]*providerLimitAttempt{},
 	})
 }
 
@@ -146,31 +152,83 @@ func (s *providerLimitState) recordRefusal(attempt providerLimitAttempt) []provi
 	return out
 }
 
-// providerLimitedBody is the 429 body for a request whose candidates were all
-// refused by their own provider limits.
+func (s *providerLimitState) cachedVerdict(provider string) (*providerLimitAttempt, bool) {
+	if s == nil {
+		return nil, false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	verdict, ok := s.verdicts[provider]
+	return verdict, ok
+}
+
+func (s *providerLimitState) cacheVerdict(provider string, verdict *providerLimitAttempt) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.verdicts[provider] = verdict
+}
+
+// The axes a node-state refusal reports. They share the attempt shape with the
+// congestion limits so one debug trail carries both, and they are distinct values
+// because what a client must do differs: waiting fixes a busy endpoint, and only an
+// operator ends a contract or lifts a spent quota.
+const (
+	axisContract   = "contract"
+	axisTokenQuota = "token_quota"
+)
+
+// providerRefusalStatus derives the HTTP status from the axis. Congestion is a 429:
+// wait and retry. Node state is a 403: no amount of waiting ends an expired
+// contract, so Retry-After would promise something that cannot happen.
+func providerRefusalStatus(axis string) int {
+	switch axis {
+	case axisContract, axisTokenQuota:
+		return http.StatusForbidden
+	default:
+		return http.StatusTooManyRequests
+	}
+}
+
+// providerRefusalType is the error type a client branches on.
+func providerRefusalType(axis string) string {
+	switch axis {
+	case axisContract:
+		return "provider_contract_expired"
+	case axisTokenQuota:
+		return "provider_token_quota_exhausted"
+	default:
+		return "rate_limit_exceeded"
+	}
+}
+
+// providerLimitedBody is the refusal body for a request whose candidates were all
+// refused, whether by their own congestion limits or by a node's own state.
 //
 // It carries every attempt, not just the last: the client's actionable choice is
 // between waiting for the provider named first and reconfiguring, and it cannot
 // make that choice from a single refusal. `response.error.attempts` is the
 // documented shape (docs/provider-limits-plan.md §7).
 func providerLimitedBody(attempts []providerLimitAttempt) []byte {
+	last := attempts[len(attempts)-1]
 	payload := map[string]any{
 		"error": map[string]any{
-			"message": fmt.Sprintf("provider %s is at its %s limit",
-				attempts[len(attempts)-1].Provider, attempts[len(attempts)-1].Axis),
-			"type":       "rate_limit_exceeded",
+			"message":    fmt.Sprintf("provider %s refused this request (%s)", last.Provider, last.Axis),
+			"type":       providerRefusalType(last.Axis),
 			"scope":      providerLimitScope,
-			"code":       http.StatusTooManyRequests,
-			"retryAfter": attempts[len(attempts)-1].RetryAfter,
+			"code":       providerRefusalStatus(last.Axis),
+			"retryAfter": last.RetryAfter,
 			"attempts":   attempts,
 		},
 	}
 	encoded, err := json.Marshal(payload)
 	if err != nil {
 		// The body is built from ints and strings, so this cannot fail in
-		// practice; falling back to a fixed body keeps a marshalling surprise
-		// from turning a 429 into a 500.
-		return []byte(`{"error":{"message":"provider rate limit exceeded","type":"rate_limit_exceeded","scope":"provider","code":429}}`)
+		// practice; a fixed body keeps a marshalling surprise from turning a
+		// refusal into a 500.
+		return []byte(`{"error":{"message":"provider refused this request","type":"rate_limit_exceeded","scope":"provider","code":429}}`)
 	}
 	return encoded
 }
@@ -196,8 +254,11 @@ func (h *ChatHandler) providerLimitError(ctx context.Context, provider string, a
 	state := providerLimitStateFrom(ctx)
 	attempts := state.recordRefusal(attempt)
 	return &providerLimitError{
-		upstreamError: &upstreamError{StatusCode: http.StatusTooManyRequests, Body: providerLimitedBody(attempts)},
-		attempt:       attempt,
+		upstreamError: &upstreamError{
+			StatusCode: providerRefusalStatus(attempt.Axis),
+			Body:       providerLimitedBody(attempts),
+		},
+		attempt: attempt,
 	}
 }
 
@@ -225,6 +286,53 @@ func (h *ChatHandler) providerLimitsFor(ctx context.Context, state *providerLimi
 	return limits
 }
 
+// providerNodeBlocked decides whether a node is unusable for this whole request
+// from its own state rather than from its congestion: an expired contract, or a
+// lifetime token quota that is spent.
+//
+// It is the ONE place that decides this, and both the candidate selection
+// (connections.go) and the dispatch path (acquireProviderAttempt) ask it, so a node
+// skipped while choosing a candidate cannot be admitted at dispatch, or the other
+// way round.
+//
+// A failed usage read answers "usable", the same fail-open rule the policy read
+// follows: a storage blip must not take a node out of rotation.
+func (h *ChatHandler) providerNodeBlocked(ctx context.Context, state *providerLimitState, provider string, limits db.ProviderLimits) (providerLimitAttempt, bool) {
+	if cached, ok := state.cachedVerdict(provider); ok {
+		if cached == nil {
+			return providerLimitAttempt{}, false
+		}
+		return *cached, true
+	}
+	if verdict := h.providerNodeVerdict(ctx, provider, limits); verdict != nil {
+		state.cacheVerdict(provider, verdict)
+		return *verdict, true
+	}
+	state.cacheVerdict(provider, nil)
+	return providerLimitAttempt{}, false
+}
+
+// providerNodeVerdict reads the two node-state facts, or nil when the node is
+// usable.
+func (h *ChatHandler) providerNodeVerdict(ctx context.Context, provider string, limits db.ProviderLimits) *providerLimitAttempt {
+	if limits.Expired(time.Now()) {
+		return &providerLimitAttempt{Provider: provider, Axis: axisContract}
+	}
+	if limits.TokenQuota <= 0 || h.Repo == nil {
+		return nil
+	}
+	used, err := h.Repo.ProviderTokenUsage(ctx, provider)
+	if err != nil {
+		log.Warn("providerlimit", "provider usage read failed, treating the quota as unspent",
+			"provider", provider, "error", err)
+		return nil
+	}
+	if used < limits.TokenQuota {
+		return nil
+	}
+	return &providerLimitAttempt{Provider: provider, Axis: axisTokenQuota, Limit: limits.TokenQuota}
+}
+
 // middlewareLimits maps the stored policy onto the limiter's own type.
 func middlewareLimits(limits db.ProviderLimits) middleware.Limits {
 	return middleware.Limits{
@@ -238,11 +346,11 @@ func middlewareLimits(limits db.ProviderLimits) middleware.Limits {
 // acquireProviderAttempt enforces one provider's limits for one upstream attempt.
 //
 // It returns a slot to release when the attempt ends, or an error the caller
-// treats as a failed attempt. A nil slot with a nil error means the provider
-// declares no limits — every registry provider, and any custom node an operator
-// has not configured — and the attempt proceeds untouched.
+// treats as a failed attempt. A nil slot with a nil error means the provider is
+// usable and declares no congestion limits — every registry provider, and any
+// custom node an operator has not configured.
 func (h *ChatHandler) acquireProviderAttempt(ctx context.Context, provider, model, connectionID string, body []byte) (*middleware.ProviderSlot, error) {
-	if h == nil || h.RateLimiter == nil || provider == "" {
+	if h == nil || provider == "" {
 		return nil, nil
 	}
 	state := providerLimitStateFrom(ctx)
@@ -257,6 +365,18 @@ func (h *ChatHandler) acquireProviderAttempt(ctx context.Context, provider, mode
 	}
 
 	limits := h.providerLimitsFor(ctx, state, provider)
+
+	// Node state before congestion, and before the limiter is consulted at all: an
+	// expired contract or a spent lifetime quota excludes the node whatever its RPM
+	// says, including when it declares no congestion limits.
+	if attempt, blocked := h.providerNodeBlocked(ctx, state, provider, limits); blocked {
+		h.recordProviderLimit(ctx, state, provider, model, connectionID, attempt)
+		return nil, h.providerLimitError(ctx, provider, attempt)
+	}
+
+	if h.RateLimiter == nil {
+		return nil, nil
+	}
 	effective := middlewareLimits(limits)
 	if effective.RPM <= 0 && effective.TPM <= 0 && effective.Concurrency <= 0 {
 		return nil, nil
