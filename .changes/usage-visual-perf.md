@@ -73,12 +73,16 @@
   track, which pushed the 12px knob past the end of the pill in the on state.
   The switch is `shrink-0` now, so a long label shortens the text column
   instead.
-- **The sidebar itself is arrangeable and hideable.** The advanced block in
-  Display used to offer one row — Plans — because that was the only entry the
-  panel could toggle. It now lists the whole sidebar, grouped the way the sidebar
-  groups it, with a switch per entry and up/down arrows plus a drag handle for
-  the order; `Settings` cannot be hidden (it is the page the panel lives on) but
-  it can be moved. Visibility and arrangement ride in the one server-side
+- **The sidebar has its own card, with presets.** It used to be one row inside
+  Display — Plans, the only entry the panel could toggle — and then a list in
+  Display's advanced fold; it is now a card of its own, which is where an
+  operator looks for it. The card lists the whole sidebar, grouped the way the
+  sidebar groups it, with a switch per entry and up/down arrows plus a drag
+  handle for the order; `Settings` cannot be hidden (it is the page the panel
+  lives on) but it can be moved. A Default / Advanced / Simple / Super Lite
+  dropdown fills the switches — 20 / 21 / 16 / 6 entries, with the control
+  reading "Custom" once they match no preset — and leaves the arrangement where
+  the operator put it. Visibility and arrangement ride in the one server-side
   `navVisibility` value (`{hidden, order}`), so a single Save publishes both and
   every client draws the same sidebar; an empty `order` means "the order the
   build declares", which is what Reset order writes back. Rows move only inside

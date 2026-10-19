@@ -4,14 +4,17 @@ import {
   ALWAYS_VISIBLE_NAV_IDS,
   DEFAULT_HIDDEN_NAV_IDS,
   NAV_CONTAINERS,
+  NAV_PRESETS,
   DEFAULT_HIDDEN_NAV_ENTRIES,
   NAV_GROUPS,
   NAV_ORDER,
+  activeNavPreset,
   arrangedNavGroups,
   dropNavEntry,
   isNavHidden,
   isNavLinkActive,
   moveNavEntry,
+  navPresetHidden,
   normalizeHiddenNav,
   normalizeNavOrder,
   orderedNavGroups,
@@ -271,5 +274,48 @@ describe('sidebar arrangement', () => {
       'settings',
       'plans',
     ])
+  })
+})
+
+describe('sidebar presets', () => {
+  it('offers the four sets, each one a valid hide list', () => {
+    expect(NAV_PRESETS.map((preset) => preset.id)).toEqual([
+      'default',
+      'advanced',
+      'simple',
+      'super-lite',
+    ])
+    for (const preset of NAV_PRESETS) {
+      const hidden = navPresetHidden(preset.id)
+      // No preset may hide the page the panel lives on.
+      expect(hidden).not.toContain('settings')
+      expect(new Set(hidden).size).toBe(hidden.length)
+      for (const id of hidden) expect(NAV_ORDER).toContain(id)
+    }
+  })
+
+  it('starts from the build default and grows to everything', () => {
+    expect(navPresetHidden('default')).toEqual([...DEFAULT_HIDDEN_NAV_IDS])
+    expect(navPresetHidden('advanced')).toEqual([])
+    // Each step reveals more than the one before it.
+    expect(navPresetHidden('simple').length).toBeGreaterThan(navPresetHidden('default').length)
+    expect(navPresetHidden('super-lite').length).toBeGreaterThan(navPresetHidden('simple').length)
+    expect(renderedIds({ hidden: navPresetHidden('super-lite') })).toEqual([
+      'endpoint',
+      'connections',
+      'combos',
+      'analytics',
+      'settings',
+      'security',
+    ])
+  })
+
+  it('reads back the preset a hide list equals, and custom otherwise', () => {
+    for (const preset of NAV_PRESETS) {
+      expect(activeNavPreset({ hidden: navPresetHidden(preset.id) })).toBe(preset.id)
+    }
+    expect(activeNavPreset(undefined)).toBe('default')
+    expect(activeNavPreset({ hidden: ['quota'] })).toBe('custom')
+    expect(activeNavPreset({ hidden: ['quota', 'skills'] })).toBe('custom')
   })
 })

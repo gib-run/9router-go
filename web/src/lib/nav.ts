@@ -140,6 +140,71 @@ export const NAV_CONTAINERS: NavContainer[] = [
   ),
 ]
 
+export type NavPreset = 'default' | 'advanced' | 'simple' | 'super-lite'
+
+export interface NavPresetDef {
+  id: NavPreset
+  label: string
+  hint: string
+  /** The entries the preset draws; everything else is hidden. */
+  visible: string[]
+}
+
+/**
+ * The sidebar sets the Settings panel offers. A preset fills the hide list and
+ * nothing else: the arrangement stays where the operator put it, because the two
+ * answer different questions — what is on the sidebar, and in which order.
+ */
+export const NAV_PRESETS: NavPresetDef[] = [
+  {
+    id: 'default',
+    label: 'Default',
+    hint: 'Plans hidden, everything else in place',
+    visible: NAV_ORDER.filter((id) => !DEFAULT_HIDDEN_NAV_IDS.includes(id)),
+  },
+  {
+    id: 'advanced',
+    label: 'Advanced',
+    hint: 'Every entry, Plans included',
+    visible: [...NAV_ORDER],
+  },
+  {
+    id: 'simple',
+    label: 'Simple',
+    hint: 'No media surfaces, no CLI, Skills or console tooling',
+    visible: NAV_ORDER.filter(
+      (id) =>
+        !['media-providers', 'cli-tools', 'skills', 'console-log', 'plans'].includes(id)
+    ),
+  },
+  {
+    id: 'super-lite',
+    label: 'Super Lite',
+    hint: 'Endpoint & Key, Providers, Combos, Usage, Settings, Security',
+    visible: ['endpoint', 'connections', 'combos', 'analytics', 'settings', 'security'],
+  },
+]
+
+const NAV_PRESETS_BY_ID = Object.fromEntries(
+  NAV_PRESETS.map((preset) => [preset.id, preset])
+) as Record<NavPreset, NavPresetDef>
+
+/** The hide list a preset writes, in render order. */
+export function navPresetHidden(preset: NavPreset): string[] {
+  const visible = NAV_PRESETS_BY_ID[preset].visible
+  return NAV_ORDER.filter((id) => !visible.includes(id))
+}
+
+/** The preset the hide list equals, or 'custom' once a switch is moved. */
+export function activeNavPreset(hidden: unknown): NavPreset | 'custom' {
+  const ids = normalizeHiddenNav(hidden)
+  for (const preset of NAV_PRESETS) {
+    if (ids.length !== navPresetHidden(preset.id).length) continue
+    if (navPresetHidden(preset.id).every((id) => ids.includes(id))) return preset.id
+  }
+  return 'custom'
+}
+
 /** Which sidebar ids govern a tab: its own entry, plus the entry it aliases. */
 const TAB_OWNERS: Record<string, string[]> = buildTabOwners()
 

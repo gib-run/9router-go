@@ -9,6 +9,7 @@
     Laptop,
     Loader2,
     Lock,
+    PanelLeft,
     RefreshCw,
     Save,
     Shield,
@@ -51,13 +52,17 @@
   } from '../lib/usagePanel.svelte'
   import {
     ALWAYS_VISIBLE_NAV_IDS,
+    NAV_PRESETS,
+    activeNavPreset,
     arrangedNavGroups,
     dropNavEntry,
     moveNavEntry,
+    navPresetHidden,
     normalizeNavOrder,
     orderHiddenNav,
     setNavVisible,
     type NavEntry,
+    type NavPreset,
   } from '../lib/nav'
   import {
     CURRENCY_CATALOG,
@@ -217,6 +222,12 @@
   // The order those entries are drawn in. Empty means "the order
   // web/src/lib/nav.ts declares", which is what Reset order writes back.
   let navOrder = $state<string[]>([])
+  // The preset the hide list currently equals, and what it leaves out — the same
+  // read-back the Usage panel list does, so "Custom" means the same thing here.
+  let navPreset = $derived(activeNavPreset(hiddenNav))
+  let navPresetHint = $derived(
+    NAV_PRESETS.find((preset) => preset.id === navPreset)?.hint ?? 'A selection of your own'
+  )
   // A visibility change is not saved until the operator presses Save, so the
   // button is offered on its own for a few seconds after a change.
   let showSaveHint = $state(false)
@@ -770,13 +781,12 @@
         />
       </div>
 
-
       <div class="flex items-center justify-between gap-3">
         <div class="min-w-0">
           <p class="text-xs font-semibold text-text-main">Advanced settings</p>
           <p class="text-[11px] text-text-subtle">
-            Unfolds the currency rates, the per-panel Usage list and the sidebar features below.
-            Folding them back changes nothing about what they do.
+            Unfolds the currency rates and the per-panel Usage list below. Folding them back
+            changes nothing about what they do.
           </p>
         </div>
         <Toggle
@@ -789,114 +799,6 @@
           }}
         />
       </div>
-
-      {#if advancedSettings}
-        <!-- Sidebar: which entries this deployment draws, and in what order. Both
-             facts are one server-side value, so a single Save publishes them; the
-             fold above is the only local part. -->
-        {#snippet navRow(entry: NavEntry, siblings: NavEntry[])}
-          {@const index = siblings.findIndex((candidate) => candidate.id === entry.id)}
-          <div
-            class="relative flex items-center justify-between gap-3 rounded-md px-1 py-1 {dragZone ===
-            'nav' && dragId === entry.id
-              ? 'opacity-40'
-              : ''}"
-            ondragover={(event) => trackRowDrop(event, 'nav', entry.id)}
-            ondragleave={(event) => leaveRowDrop(event, entry.id)}
-            ondrop={(event) => dropOnRow(event, 'nav', entry.id)}
-          >
-            {#if dragTarget?.id === entry.id && dragId !== entry.id}
-              <div
-                class="pointer-events-none absolute inset-x-0 h-0.5 bg-primary {dragTarget?.before
-                  ? 'top-0'
-                  : 'bottom-0'}"
-              ></div>
-            {/if}
-            <div class="flex min-w-0 items-center gap-1.5">
-              <span
-                class="material-symbols-outlined cursor-grab text-[14px] text-text-subtle active:cursor-grabbing"
-                title="Drag to reorder"
-                aria-hidden="true"
-                draggable="true"
-                ondragstart={(event) => startRowDrag(event, 'nav', entry.id)}
-                ondragend={endRowDrag}>drag_indicator</span
-              >
-              <p class="min-w-0 truncate text-xs text-text-main">{entry.label}</p>
-            </div>
-            <div class="flex items-center gap-2">
-              <div class="flex items-center gap-0.5">
-                <button
-                  type="button"
-                  title="Move up"
-                  aria-label="Move {entry.label} up"
-                  disabled={index === 0}
-                  onclick={() =>
-                    markLayoutEdit(() => (navOrder = moveNavEntry(navOrder, entry.id, -1)))}
-                  class="rounded p-0.5 text-text-muted transition-colors hover:text-text-main disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
-                >
-                  <span class="material-symbols-outlined text-[14px]">arrow_upward</span>
-                </button>
-                <button
-                  type="button"
-                  title="Move down"
-                  aria-label="Move {entry.label} down"
-                  disabled={index === siblings.length - 1}
-                  onclick={() =>
-                    markLayoutEdit(() => (navOrder = moveNavEntry(navOrder, entry.id, 1)))}
-                  class="rounded p-0.5 text-text-muted transition-colors hover:text-text-main disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
-                >
-                  <span class="material-symbols-outlined text-[14px]">arrow_downward</span>
-                </button>
-              </div>
-              <Toggle
-                checked={!hiddenNav.includes(entry.id)}
-                disabled={ALWAYS_VISIBLE_NAV_IDS.includes(entry.id)}
-                title={ALWAYS_VISIBLE_NAV_IDS.includes(entry.id)
-                  ? 'Always visible: this is the page the panel lives on'
-                  : ''}
-                size="sm"
-                label="{entry.label} in the sidebar"
-                onChange={(val: boolean) => {
-                  hiddenNav = setNavVisible(hiddenNav, entry.id, val)
-                }}
-              />
-            </div>
-          </div>
-        {/snippet}
-
-        <div class="space-y-2 border-t border-border pt-3">
-          <div class="flex items-center justify-between gap-2">
-            <p class="text-xs font-semibold text-text-main">Sidebar</p>
-            <button
-              type="button"
-              onclick={() => markLayoutEdit(() => (navOrder = []))}
-              class="text-[10px] font-medium text-text-muted transition-colors hover:text-text-main cursor-pointer"
-            >
-              Reset order
-            </button>
-          </div>
-
-          {#each arrangedNavGroups(navOrder) as group (group.id)}
-            <div class="space-y-1">
-              {#if group.label}
-                <p class="text-[10px] font-semibold uppercase tracking-wider text-text-subtle">
-                  {group.label}
-                </p>
-              {/if}
-              {#each group.entries as entry (entry.id)}
-                {@render navRow(entry, group.entries)}
-                {#if entry.kind === 'accordion'}
-                  <div class="ml-4 space-y-1 border-l border-border-subtle pl-2">
-                    {#each entry.children as child (child.id)}
-                      {@render navRow(child, entry.children)}
-                    {/each}
-                  </div>
-                {/if}
-              {/each}
-            </div>
-          {/each}
-        </div>
-      {/if}
 
       <!-- Currency: the display currency every cost surface reads, kept here
            because it is one of these preferences rather than a section of its
@@ -970,6 +872,141 @@
         {#if ratesMessage}
           <p class="text-[11px] text-text-muted leading-relaxed">{ratesMessage}</p>
         {/if}
+      </div>
+    </Card>
+    <!-- SECTION: Sidebar. Which entries this deployment draws, and in what order
+         they sit. Both facts ride the one server-side navVisibility value, so a
+         single Save publishes them; the preset fills the switches and leaves the
+         arrangement where the operator put it. -->
+    <Card padding="md" class="space-y-4">
+      <div class="flex items-center justify-between gap-2 pb-2 border-b border-border">
+        <div class="flex items-center gap-2">
+          <PanelLeft class="w-4 h-4 text-brand-500" />
+          <h2 class="text-sm font-bold text-text-main">Sidebar</h2>
+        </div>
+        <button
+          type="button"
+          onclick={() => markLayoutEdit(() => (navOrder = []))}
+          class="text-[10px] font-medium text-text-muted transition-colors hover:text-text-main cursor-pointer"
+        >
+          Reset order
+        </button>
+      </div>
+
+      <div class="space-y-2">
+        <div class="space-y-1">
+          <label class="text-[11px] font-medium text-text-muted" for="sidebar-preset">Preset</label>
+          <select
+            id="sidebar-preset"
+            value={navPreset}
+            title={navPresetHint}
+            onchange={(event) =>
+              markLayoutEdit(() =>
+                (hiddenNav = navPresetHidden(
+                  (event.currentTarget as HTMLSelectElement).value as NavPreset
+                ))
+              )}
+            class="w-full rounded-lg border border-border bg-surface-2 px-2.5 py-1.5 text-xs text-text-main focus:border-brand-500 focus:outline-none"
+          >
+            <!-- Shown only while the switches match no preset: a selection of
+                 one's own is a state to read, not one to pick. -->
+            <option value="custom" disabled>Custom</option>
+            {#each NAV_PRESETS as preset (preset.id)}
+              <option value={preset.id} title={preset.hint}>{preset.label}</option>
+            {/each}
+          </select>
+          <p class="text-[11px] text-text-subtle">{navPresetHint}</p>
+        </div>
+
+        {#snippet navRow(entry: NavEntry, siblings: NavEntry[])}
+          {@const index = siblings.findIndex((candidate) => candidate.id === entry.id)}
+          <div
+            class="relative flex items-center justify-between gap-3 rounded-md px-1 py-1 {dragZone ===
+            'nav' && dragId === entry.id
+              ? 'opacity-40'
+              : ''}"
+            ondragover={(event) => trackRowDrop(event, 'nav', entry.id)}
+            ondragleave={(event) => leaveRowDrop(event, entry.id)}
+            ondrop={(event) => dropOnRow(event, 'nav', entry.id)}
+          >
+            {#if dragTarget?.id === entry.id && dragId !== entry.id}
+              <div
+                class="pointer-events-none absolute inset-x-0 h-0.5 bg-primary {dragTarget?.before
+                  ? 'top-0'
+                  : 'bottom-0'}"
+              ></div>
+            {/if}
+            <div class="flex min-w-0 items-center gap-1.5">
+              <span
+                class="material-symbols-outlined cursor-grab text-[14px] text-text-subtle active:cursor-grabbing"
+                title="Drag to reorder"
+                aria-hidden="true"
+                draggable="true"
+                ondragstart={(event) => startRowDrag(event, 'nav', entry.id)}
+                ondragend={endRowDrag}>drag_indicator</span
+              >
+              <p class="min-w-0 truncate text-xs text-text-main">{entry.label}</p>
+            </div>
+            <div class="flex items-center gap-2">
+              <div class="flex items-center gap-0.5">
+                <button
+                  type="button"
+                  title="Move up"
+                  aria-label="Move {entry.label} up"
+                  disabled={index === 0}
+                  onclick={() =>
+                    markLayoutEdit(() => (navOrder = moveNavEntry(navOrder, entry.id, -1)))}
+                  class="rounded p-0.5 text-text-muted transition-colors hover:text-text-main disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                >
+                  <span class="material-symbols-outlined text-[14px]">arrow_upward</span>
+                </button>
+                <button
+                  type="button"
+                  title="Move down"
+                  aria-label="Move {entry.label} down"
+                  disabled={index === siblings.length - 1}
+                  onclick={() =>
+                    markLayoutEdit(() => (navOrder = moveNavEntry(navOrder, entry.id, 1)))}
+                  class="rounded p-0.5 text-text-muted transition-colors hover:text-text-main disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                >
+                  <span class="material-symbols-outlined text-[14px]">arrow_downward</span>
+                </button>
+              </div>
+              <Toggle
+                checked={!hiddenNav.includes(entry.id)}
+                disabled={ALWAYS_VISIBLE_NAV_IDS.includes(entry.id)}
+                title={ALWAYS_VISIBLE_NAV_IDS.includes(entry.id)
+                  ? 'Always visible: this is the page the panel lives on'
+                  : ''}
+                size="sm"
+                label="{entry.label} in the sidebar"
+                onChange={(val: boolean) => {
+                  hiddenNav = setNavVisible(hiddenNav, entry.id, val)
+                }}
+              />
+            </div>
+          </div>
+        {/snippet}
+
+        {#each arrangedNavGroups(navOrder) as group (group.id)}
+          <div class="space-y-1">
+            {#if group.label}
+              <p class="text-[10px] font-semibold uppercase tracking-wider text-text-subtle">
+                {group.label}
+              </p>
+            {/if}
+            {#each group.entries as entry (entry.id)}
+              {@render navRow(entry, group.entries)}
+              {#if entry.kind === 'accordion'}
+                <div class="ml-4 space-y-1 border-l border-border-subtle pl-2">
+                  {#each entry.children as child (child.id)}
+                    {@render navRow(child, entry.children)}
+                  {/each}
+                </div>
+              {/if}
+            {/each}
+          </div>
+        {/each}
       </div>
     </Card>
     {#if advancedSettings}
