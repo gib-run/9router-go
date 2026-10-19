@@ -785,8 +785,8 @@
         <div class="min-w-0">
           <p class="text-xs font-semibold text-text-main">Advanced settings</p>
           <p class="text-[11px] text-text-subtle">
-            Unfolds the currency rates and the per-panel Usage list below. Folding them back
-            changes nothing about what they do.
+            Unfolds the currency rates, the Sidebar card and the per-panel Usage list below. Folding
+            them back changes nothing about what they do.
           </p>
         </div>
         <Toggle
@@ -874,10 +874,13 @@
         {/if}
       </div>
     </Card>
+    {#if advancedSettings}
     <!-- SECTION: Sidebar. Which entries this deployment draws, and in what order
-         they sit. Both facts ride the one server-side navVisibility value, so a
-         single Save publishes them; the preset fills the switches and leaves the
-         arrangement where the operator put it. -->
+         they sit, folded behind the Display switch with the Usage panel card: both
+         are arrangement surfaces rather than day-to-day preferences. Both facts
+         ride the one server-side navVisibility value, so a single Save publishes
+         them; the preset fills the switches and leaves the arrangement where the
+         operator put it. -->
     <Card padding="md" class="space-y-4">
       <div class="flex items-center justify-between gap-2 pb-2 border-b border-border">
         <div class="flex items-center gap-2">
@@ -1009,6 +1012,7 @@
         {/each}
       </div>
     </Card>
+    {/if}
     {#if advancedSettings}
     <!-- SECTION: Usage dashboard. Per-panel visibility and arrangement for every
          Usage section (Overview, Details, Cache Analytics, Compression
