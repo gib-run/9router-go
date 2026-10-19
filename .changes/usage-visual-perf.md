@@ -100,6 +100,13 @@
   state of the Usage page's Details panels, but sat in Display among the currency
   preferences; it is now the first row of the Usage dashboard card, above the
   preset.
+- **The three preference cards move to the end of the form.** Display, Sidebar and
+  Usage dashboard were the first cards on the page, above Runtime Storage, so a
+  settings page opened on a currency selector while the sections an operator
+  actually saves — storage, password, SSO, routing, observability, the system
+  prompt — sat below the fold. They now follow Global System Prompt &
+  Anti-Poisoning, in the same order, and the Advanced settings switch still
+  folds Sidebar and Usage dashboard away (nine cards open, seven folded).
 - **Observability & Storage Retention no longer empties itself.** Its database
   size, row counts, reclaimable figure and the three prune/vacuum buttons all sat
   behind `{#if dbStats}`, and `loadDbStats()` swallowed the error — so on an

@@ -751,416 +751,6 @@
     onchange={handleSettingsInput}
     onclick={handleSettingsInput}
   >
-    <!-- SECTION: Display. Unit abbreviation, the usage-detail default, an
-         advanced-settings disclosure that unfolds the currency rates, the
-         per-panel Usage list and the sidebar features, and the display currency
-         itself. The switches here are localStorage preferences that apply at
-         once, like the two toggles at the top: every change still raises the
-         save reminder, because the currency they sit beside is a saved setting. -->
-    <Card padding="md" class="space-y-4">
-      <div class="flex items-center justify-between pb-2 border-b border-border">
-        <div class="flex items-center gap-2">
-          <Sliders class="w-4 h-4 text-brand-500" />
-          <h2 class="text-sm font-bold text-text-main">Display</h2>
-        </div>
-      </div>
-
-      <div class="flex items-center justify-between gap-3">
-        <div class="min-w-0">
-          <p class="text-xs font-semibold text-text-main">Unit abbreviation</p>
-          <p class="text-[11px] text-text-subtle">Large numbers as 亿/万 (zh) or M/B (en); off → full numbers</p>
-        </div>
-        <Toggle
-          checked={compactUnits}
-          size="sm"
-          label="Unit abbreviation"
-          onChange={(val: boolean) => {
-            setCompactUnits(val)
-            compactUnits = isCompactUnitsEnabled()
-          }}
-        />
-      </div>
-
-      <div class="flex items-center justify-between gap-3">
-        <div class="min-w-0">
-          <p class="text-xs font-semibold text-text-main">Advanced settings</p>
-          <p class="text-[11px] text-text-subtle">
-            Unfolds the currency rates, the Sidebar card and the per-panel Usage list below. Folding
-            them back changes nothing about what they do.
-          </p>
-        </div>
-        <Toggle
-          checked={advancedSettings}
-          size="sm"
-          label="Advanced settings"
-          onChange={(val: boolean) => {
-            setAdvancedSettingsVisible(val)
-            advancedSettings = isAdvancedSettingsVisible()
-          }}
-        />
-      </div>
-
-      <!-- Currency: the display currency every cost surface reads, kept here
-           because it is one of these preferences rather than a section of its
-           own. The catalog and the formatting rules live in lib/currency.ts. -->
-      <div class="space-y-3 border-t border-border pt-3">
-        <p class="text-xs font-semibold text-text-main">Currency</p>
-
-        <p class="text-[11px] text-text-subtle leading-relaxed">
-          Every cost is measured in USD and shown here in the currency you pick. The rates are yours
-          to keep: edit them, or refresh them from a public provider.
-        </p>
-
-        <div class="space-y-3">
-          <div class="space-y-1">
-            <label for="currency-code" class="text-xs font-semibold text-text-main">Display currency</label>
-            <select
-              id="currency-code"
-              bind:value={currencyCode}
-              class="w-full px-3 py-2 rounded-lg bg-bg border border-border text-xs text-text-main focus:outline-none focus:border-brand-500"
-            >
-              {#each CURRENCY_CATALOG as option (option.code)}
-                <option value={option.code}>{option.code} — {option.label}</option>
-              {/each}
-            </select>
-          </div>
-          <div class="flex items-center justify-between gap-3">
-            <span class="text-xs text-text-main">Show USD next to the converted amount</span>
-            <Toggle
-              checked={currencyShowBoth}
-              size="sm"
-              label="Show USD next to the converted amount"
-              onChange={(val) => (currencyShowBoth = val)}
-            />
-          </div>
-        </div>
-
-        {#if advancedSettings}
-        <div class="space-y-1">
-          <p class="text-xs text-text-main">Rates — one USD in each currency</p>
-          <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
-            {#each CURRENCY_CATALOG as option (option.code)}
-              <label class="flex items-center gap-2 rounded-[10px] border border-border-subtle px-2 py-1.5">
-                <span class="w-9 text-[11px] font-semibold text-text-muted">{option.code}</span>
-                <input
-                  type="number"
-                  min="0"
-                  step="any"
-                  inputmode="decimal"
-                  value={currencyRates[option.code] ?? ''}
-                  placeholder={String(DEFAULT_RATES[option.code] ?? '')}
-                  oninput={(e) => setRate(option.code, (e.target as HTMLInputElement).value)}
-                  class="w-full bg-transparent text-xs text-text-main focus:outline-none"
-                />
-              </label>
-            {/each}
-          </div>
-        </div>
-        {/if}
-
-        <div class="flex flex-wrap items-center justify-between gap-2">
-          <p class="text-[11px] text-text-subtle">
-            1 USD = {formatCost(1, { code: currencyCode, rates: currencyRates, showBoth: false })} ·
-            {describeRates(currencySetting())}
-          </p>
-          <Button variant="secondary" size="sm" onclick={refreshRates} loading={isRefreshingRates}>
-            <RefreshCw class="w-3.5 h-3.5 text-text-muted" />
-            <span>Update currency</span>
-          </Button>
-        </div>
-
-        {#if ratesMessage}
-          <p class="text-[11px] text-text-muted leading-relaxed">{ratesMessage}</p>
-        {/if}
-      </div>
-    </Card>
-    {#if advancedSettings}
-    <!-- SECTION: Sidebar. Which entries this deployment draws, and in what order
-         they sit, folded behind the Display switch with the Usage panel card: both
-         are arrangement surfaces rather than day-to-day preferences. Both facts
-         ride the one server-side navVisibility value, so a single Save publishes
-         them; the preset fills the switches and leaves the arrangement where the
-         operator put it. -->
-    <Card padding="md" class="space-y-4">
-      <div class="flex items-center justify-between gap-2 pb-2 border-b border-border">
-        <div class="flex items-center gap-2">
-          <PanelLeft class="w-4 h-4 text-brand-500" />
-          <h2 class="text-sm font-bold text-text-main">Sidebar</h2>
-        </div>
-        <button
-          type="button"
-          onclick={() => markLayoutEdit(() => (navOrder = []))}
-          class="text-[10px] font-medium text-text-muted transition-colors hover:text-text-main cursor-pointer"
-        >
-          Reset order
-        </button>
-      </div>
-
-      <div class="space-y-2">
-        <div class="space-y-1">
-          <label class="text-[11px] font-medium text-text-muted" for="sidebar-preset">Preset</label>
-          <select
-            id="sidebar-preset"
-            value={navPreset}
-            title={navPresetHint}
-            onchange={(event) =>
-              markLayoutEdit(() =>
-                (hiddenNav = navPresetHidden(
-                  (event.currentTarget as HTMLSelectElement).value as NavPreset
-                ))
-              )}
-            class="w-full rounded-lg border border-border bg-surface-2 px-2.5 py-1.5 text-xs text-text-main focus:border-brand-500 focus:outline-none"
-          >
-            <!-- Shown only while the switches match no preset: a selection of
-                 one's own is a state to read, not one to pick. -->
-            <option value="custom" disabled>Custom</option>
-            {#each NAV_PRESETS as preset (preset.id)}
-              <option value={preset.id} title={preset.hint}>{preset.label}</option>
-            {/each}
-          </select>
-          <p class="text-[11px] text-text-subtle">{navPresetHint}</p>
-        </div>
-
-        {#snippet navRow(entry: NavEntry, siblings: NavEntry[])}
-          {@const index = siblings.findIndex((candidate) => candidate.id === entry.id)}
-          <div
-            class="relative flex items-center justify-between gap-3 rounded-md px-1 py-1 {dragZone ===
-            'nav' && dragId === entry.id
-              ? 'opacity-40'
-              : ''}"
-            ondragover={(event) => trackRowDrop(event, 'nav', entry.id)}
-            ondragleave={(event) => leaveRowDrop(event, entry.id)}
-            ondrop={(event) => dropOnRow(event, 'nav', entry.id)}
-          >
-            {#if dragTarget?.id === entry.id && dragId !== entry.id}
-              <div
-                class="pointer-events-none absolute inset-x-0 h-0.5 bg-primary {dragTarget?.before
-                  ? 'top-0'
-                  : 'bottom-0'}"
-              ></div>
-            {/if}
-            <div class="flex min-w-0 items-center gap-1.5">
-              <span
-                class="material-symbols-outlined cursor-grab text-[14px] text-text-subtle active:cursor-grabbing"
-                title="Drag to reorder"
-                aria-hidden="true"
-                draggable="true"
-                ondragstart={(event) => startRowDrag(event, 'nav', entry.id)}
-                ondragend={endRowDrag}>drag_indicator</span
-              >
-              <p class="min-w-0 truncate text-xs text-text-main">{entry.label}</p>
-            </div>
-            <div class="flex items-center gap-2">
-              <div class="flex items-center gap-0.5">
-                <button
-                  type="button"
-                  title="Move up"
-                  aria-label="Move {entry.label} up"
-                  disabled={index === 0}
-                  onclick={() =>
-                    markLayoutEdit(() => (navOrder = moveNavEntry(navOrder, entry.id, -1)))}
-                  class="rounded p-0.5 text-text-muted transition-colors hover:text-text-main disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
-                >
-                  <span class="material-symbols-outlined text-[14px]">arrow_upward</span>
-                </button>
-                <button
-                  type="button"
-                  title="Move down"
-                  aria-label="Move {entry.label} down"
-                  disabled={index === siblings.length - 1}
-                  onclick={() =>
-                    markLayoutEdit(() => (navOrder = moveNavEntry(navOrder, entry.id, 1)))}
-                  class="rounded p-0.5 text-text-muted transition-colors hover:text-text-main disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
-                >
-                  <span class="material-symbols-outlined text-[14px]">arrow_downward</span>
-                </button>
-              </div>
-              <Toggle
-                checked={!hiddenNav.includes(entry.id)}
-                disabled={ALWAYS_VISIBLE_NAV_IDS.includes(entry.id)}
-                title={ALWAYS_VISIBLE_NAV_IDS.includes(entry.id)
-                  ? 'Always visible: this is the page the panel lives on'
-                  : ''}
-                size="sm"
-                label="{entry.label} in the sidebar"
-                onChange={(val: boolean) => {
-                  hiddenNav = setNavVisible(hiddenNav, entry.id, val)
-                }}
-              />
-            </div>
-          </div>
-        {/snippet}
-
-        {#each arrangedNavGroups(navOrder) as group (group.id)}
-          <div class="space-y-1">
-            {#if group.label}
-              <p class="text-[10px] font-semibold uppercase tracking-wider text-text-subtle">
-                {group.label}
-              </p>
-            {/if}
-            {#each group.entries as entry (entry.id)}
-              {@render navRow(entry, group.entries)}
-              {#if entry.kind === 'accordion'}
-                <div class="ml-4 space-y-1 border-l border-border-subtle pl-2">
-                  {#each entry.children as child (child.id)}
-                    {@render navRow(child, entry.children)}
-                  {/each}
-                </div>
-              {/if}
-            {/each}
-          </div>
-        {/each}
-      </div>
-    </Card>
-    {/if}
-    {#if advancedSettings}
-    <!-- SECTION: Usage dashboard. Per-panel visibility and arrangement for every
-         Usage section (Overview, Details, Cache Analytics, Compression
-         Analytics), folded away with the rest of the advanced settings: the
-         arrangement keeps driving the Usage page while the card is hidden. It has
-         no Save of its own on purpose — the presets, the toggles, the arrows and a
-         drag all raise the global reminder, and the global Save writes the
-         arrangement with the rest of the form. -->
-    <Card padding="md" class="space-y-4">
-      <div class="flex items-center justify-between gap-2 pb-2 border-b border-border">
-        <div class="flex items-center gap-2">
-          <Sliders class="w-4 h-4 text-brand-500" />
-          <h2 class="text-sm font-bold text-text-main">Usage dashboard</h2>
-        </div>
-      </div>
-      <div class="flex items-center justify-between gap-3">
-        <div class="min-w-0">
-          <p class="text-xs font-semibold text-text-main">Expand usage details</p>
-          <p class="text-[11px] text-text-subtle">
-            Activity Heatmap and Node Health open instead of starting collapsed
-          </p>
-        </div>
-        <Toggle
-          checked={detailsExpanded}
-          size="sm"
-          label="Expand usage details"
-          onChange={(val: boolean) => {
-            setDetailsExpandedByDefault(val)
-            detailsExpanded = isDetailsExpandedByDefault()
-          }}
-        />
-      </div>
-      <div class="space-y-4">
-        <div class="space-y-2">
-        <div class="space-y-1">
-          <label class="text-[11px] font-medium text-text-muted" for="usage-panel-preset">Preset</label>
-          <select
-            id="usage-panel-preset"
-            value={panelPreset}
-            title={panelHint}
-            onchange={(event) =>
-              markLayoutEdit(() =>
-                applyUsagePreset((event.currentTarget as HTMLSelectElement).value as UsagePanelPreset)
-              )}
-            class="w-full rounded-lg border border-border bg-surface-2 px-2.5 py-1.5 text-xs text-text-main focus:border-brand-500 focus:outline-none"
-          >
-            <!-- Shown only while the toggles match no preset: an arrangement of
-                 one's own is a state to read, not one to pick. -->
-            <option value="custom" disabled>Custom</option>
-            {#each USAGE_PANEL_PRESETS as preset (preset.id)}
-              <option value={preset.id} title={preset.hint}>{preset.label}</option>
-            {/each}
-          </select>
-        </div>
-          <p class="text-[11px] text-text-subtle">{panelHint}</p>
-        </div>
-        {#each USAGE_PANEL_GROUPS as group (group.id)}
-          {@const orderable = USAGE_PANEL_ORDERABLE_GROUPS.includes(group.id)}
-          <div class="space-y-2">
-            <div class="flex items-center justify-between gap-2">
-              <p class="text-[10px] font-semibold uppercase tracking-wider text-text-subtle">
-                {group.label}
-              </p>
-              {#if orderable}
-                <button
-                  type="button"
-                  onclick={() => markLayoutEdit(() => resetPanelOrder(group.id))}
-                  class="text-[10px] font-medium text-text-muted transition-colors hover:text-text-main cursor-pointer"
-                >
-                  Reset order
-                </button>
-              {:else}
-                <span class="text-[10px] text-text-subtle">Order fixed by the layout</span>
-              {/if}
-            </div>
-            {#each panelOrder(group.id) as itemId, index (itemId)}
-              {@const item = group.items.find((candidate) => candidate.id === itemId)}
-              {@const fixed = USAGE_PANEL_FIXED_POSITION[itemId]}
-              {@const grabbable = orderable && !fixed}
-              {@const landing = dragTarget?.id === itemId && dragId !== itemId}
-              <div
-                class="relative flex items-center justify-between gap-3 rounded-md px-1 py-1 {dragId ===
-                itemId
-                  ? 'opacity-40'
-                  : ''}"
-                ondragover={(event) => trackRowDrop(event, 'panel', itemId, group.id)}
-                ondragleave={(event) => leaveRowDrop(event, itemId)}
-                ondrop={(event) => dropOnRow(event, 'panel', itemId, group.id)}
-              >
-                {#if landing}
-                  <div
-                    class="pointer-events-none absolute inset-x-0 h-0.5 bg-primary {dragTarget?.before
-                      ? 'top-0'
-                      : 'bottom-0'}"
-                  ></div>
-                {/if}
-                <div class="flex min-w-0 items-center gap-1.5">
-                  {#if grabbable}
-                    <span
-                      class="material-symbols-outlined cursor-grab text-[14px] text-text-subtle active:cursor-grabbing"
-                      title="Drag to reorder"
-                      aria-hidden="true"
-                      draggable="true"
-                      ondragstart={(event) => startRowDrag(event, 'panel', itemId, group.id)}
-                      ondragend={endRowDrag}>drag_indicator</span
-                    >
-                  {/if}
-                  <p class="min-w-0 text-xs text-text-main">{item?.label}</p>
-                </div>
-                <div class="flex items-center gap-2">
-                  {#if orderable}
-                    <div class="flex items-center gap-0.5">
-                      <button
-                        type="button"
-                        title={fixed ?? 'Move up'}
-                        aria-label="Move {item?.label} up"
-                        disabled={Boolean(fixed) || index === 0}
-                        onclick={() => markLayoutEdit(() => movePanel(group.id, itemId, -1))}
-                        class="rounded p-0.5 text-text-muted transition-colors hover:text-text-main disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
-                      >
-                        <span class="material-symbols-outlined text-[14px]">arrow_upward</span>
-                      </button>
-                      <button
-                        type="button"
-                        title={fixed ?? 'Move down'}
-                        aria-label="Move {item?.label} down"
-                        disabled={Boolean(fixed) || index === panelOrder(group.id).length - 1}
-                        onclick={() => markLayoutEdit(() => movePanel(group.id, itemId, 1))}
-                        class="rounded p-0.5 text-text-muted transition-colors hover:text-text-main disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
-                      >
-                        <span class="material-symbols-outlined text-[14px]">arrow_downward</span>
-                      </button>
-                    </div>
-                  {/if}
-                  <Toggle
-                    checked={isPanelVisible(itemId)}
-                    size="sm"
-                    label={item?.label ?? itemId}
-                    onChange={(val: boolean) => setPanelVisible(itemId, val)}
-                  />
-                </div>
-              </div>
-            {/each}
-          </div>
-        {/each}
-      </div>
-    </Card>
-    {/if}
     <!-- SECTION 1: Runtime Storage -->
     <Card padding="md" class="space-y-4">
       <div class="flex items-center justify-between pb-2 border-b border-border">
@@ -1710,6 +1300,416 @@
         </div>
       </div>
     </Card>
+    <!-- SECTION: Display. Unit abbreviation, the usage-detail default, an
+         advanced-settings disclosure that unfolds the currency rates, the
+         per-panel Usage list and the sidebar features, and the display currency
+         itself. The switches here are localStorage preferences that apply at
+         once, like the two toggles at the top: every change still raises the
+         save reminder, because the currency they sit beside is a saved setting. -->
+    <Card padding="md" class="space-y-4">
+      <div class="flex items-center justify-between pb-2 border-b border-border">
+        <div class="flex items-center gap-2">
+          <Sliders class="w-4 h-4 text-brand-500" />
+          <h2 class="text-sm font-bold text-text-main">Display</h2>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-between gap-3">
+        <div class="min-w-0">
+          <p class="text-xs font-semibold text-text-main">Unit abbreviation</p>
+          <p class="text-[11px] text-text-subtle">Large numbers as 亿/万 (zh) or M/B (en); off → full numbers</p>
+        </div>
+        <Toggle
+          checked={compactUnits}
+          size="sm"
+          label="Unit abbreviation"
+          onChange={(val: boolean) => {
+            setCompactUnits(val)
+            compactUnits = isCompactUnitsEnabled()
+          }}
+        />
+      </div>
+
+      <div class="flex items-center justify-between gap-3">
+        <div class="min-w-0">
+          <p class="text-xs font-semibold text-text-main">Advanced settings</p>
+          <p class="text-[11px] text-text-subtle">
+            Unfolds the currency rates, the Sidebar card and the per-panel Usage list below. Folding
+            them back changes nothing about what they do.
+          </p>
+        </div>
+        <Toggle
+          checked={advancedSettings}
+          size="sm"
+          label="Advanced settings"
+          onChange={(val: boolean) => {
+            setAdvancedSettingsVisible(val)
+            advancedSettings = isAdvancedSettingsVisible()
+          }}
+        />
+      </div>
+
+      <!-- Currency: the display currency every cost surface reads, kept here
+           because it is one of these preferences rather than a section of its
+           own. The catalog and the formatting rules live in lib/currency.ts. -->
+      <div class="space-y-3 border-t border-border pt-3">
+        <p class="text-xs font-semibold text-text-main">Currency</p>
+
+        <p class="text-[11px] text-text-subtle leading-relaxed">
+          Every cost is measured in USD and shown here in the currency you pick. The rates are yours
+          to keep: edit them, or refresh them from a public provider.
+        </p>
+
+        <div class="space-y-3">
+          <div class="space-y-1">
+            <label for="currency-code" class="text-xs font-semibold text-text-main">Display currency</label>
+            <select
+              id="currency-code"
+              bind:value={currencyCode}
+              class="w-full px-3 py-2 rounded-lg bg-bg border border-border text-xs text-text-main focus:outline-none focus:border-brand-500"
+            >
+              {#each CURRENCY_CATALOG as option (option.code)}
+                <option value={option.code}>{option.code} — {option.label}</option>
+              {/each}
+            </select>
+          </div>
+          <div class="flex items-center justify-between gap-3">
+            <span class="text-xs text-text-main">Show USD next to the converted amount</span>
+            <Toggle
+              checked={currencyShowBoth}
+              size="sm"
+              label="Show USD next to the converted amount"
+              onChange={(val) => (currencyShowBoth = val)}
+            />
+          </div>
+        </div>
+
+        {#if advancedSettings}
+        <div class="space-y-1">
+          <p class="text-xs text-text-main">Rates — one USD in each currency</p>
+          <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            {#each CURRENCY_CATALOG as option (option.code)}
+              <label class="flex items-center gap-2 rounded-[10px] border border-border-subtle px-2 py-1.5">
+                <span class="w-9 text-[11px] font-semibold text-text-muted">{option.code}</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="any"
+                  inputmode="decimal"
+                  value={currencyRates[option.code] ?? ''}
+                  placeholder={String(DEFAULT_RATES[option.code] ?? '')}
+                  oninput={(e) => setRate(option.code, (e.target as HTMLInputElement).value)}
+                  class="w-full bg-transparent text-xs text-text-main focus:outline-none"
+                />
+              </label>
+            {/each}
+          </div>
+        </div>
+        {/if}
+
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <p class="text-[11px] text-text-subtle">
+            1 USD = {formatCost(1, { code: currencyCode, rates: currencyRates, showBoth: false })} ·
+            {describeRates(currencySetting())}
+          </p>
+          <Button variant="secondary" size="sm" onclick={refreshRates} loading={isRefreshingRates}>
+            <RefreshCw class="w-3.5 h-3.5 text-text-muted" />
+            <span>Update currency</span>
+          </Button>
+        </div>
+
+        {#if ratesMessage}
+          <p class="text-[11px] text-text-muted leading-relaxed">{ratesMessage}</p>
+        {/if}
+      </div>
+    </Card>
+    {#if advancedSettings}
+    <!-- SECTION: Sidebar. Which entries this deployment draws, and in what order
+         they sit, folded behind the Display switch with the Usage panel card: both
+         are arrangement surfaces rather than day-to-day preferences. Both facts
+         ride the one server-side navVisibility value, so a single Save publishes
+         them; the preset fills the switches and leaves the arrangement where the
+         operator put it. -->
+    <Card padding="md" class="space-y-4">
+      <div class="flex items-center justify-between gap-2 pb-2 border-b border-border">
+        <div class="flex items-center gap-2">
+          <PanelLeft class="w-4 h-4 text-brand-500" />
+          <h2 class="text-sm font-bold text-text-main">Sidebar</h2>
+        </div>
+        <button
+          type="button"
+          onclick={() => markLayoutEdit(() => (navOrder = []))}
+          class="text-[10px] font-medium text-text-muted transition-colors hover:text-text-main cursor-pointer"
+        >
+          Reset order
+        </button>
+      </div>
+
+      <div class="space-y-2">
+        <div class="space-y-1">
+          <label class="text-[11px] font-medium text-text-muted" for="sidebar-preset">Preset</label>
+          <select
+            id="sidebar-preset"
+            value={navPreset}
+            title={navPresetHint}
+            onchange={(event) =>
+              markLayoutEdit(() =>
+                (hiddenNav = navPresetHidden(
+                  (event.currentTarget as HTMLSelectElement).value as NavPreset
+                ))
+              )}
+            class="w-full rounded-lg border border-border bg-surface-2 px-2.5 py-1.5 text-xs text-text-main focus:border-brand-500 focus:outline-none"
+          >
+            <!-- Shown only while the switches match no preset: a selection of
+                 one's own is a state to read, not one to pick. -->
+            <option value="custom" disabled>Custom</option>
+            {#each NAV_PRESETS as preset (preset.id)}
+              <option value={preset.id} title={preset.hint}>{preset.label}</option>
+            {/each}
+          </select>
+          <p class="text-[11px] text-text-subtle">{navPresetHint}</p>
+        </div>
+
+        {#snippet navRow(entry: NavEntry, siblings: NavEntry[])}
+          {@const index = siblings.findIndex((candidate) => candidate.id === entry.id)}
+          <div
+            class="relative flex items-center justify-between gap-3 rounded-md px-1 py-1 {dragZone ===
+            'nav' && dragId === entry.id
+              ? 'opacity-40'
+              : ''}"
+            ondragover={(event) => trackRowDrop(event, 'nav', entry.id)}
+            ondragleave={(event) => leaveRowDrop(event, entry.id)}
+            ondrop={(event) => dropOnRow(event, 'nav', entry.id)}
+          >
+            {#if dragTarget?.id === entry.id && dragId !== entry.id}
+              <div
+                class="pointer-events-none absolute inset-x-0 h-0.5 bg-primary {dragTarget?.before
+                  ? 'top-0'
+                  : 'bottom-0'}"
+              ></div>
+            {/if}
+            <div class="flex min-w-0 items-center gap-1.5">
+              <span
+                class="material-symbols-outlined cursor-grab text-[14px] text-text-subtle active:cursor-grabbing"
+                title="Drag to reorder"
+                aria-hidden="true"
+                draggable="true"
+                ondragstart={(event) => startRowDrag(event, 'nav', entry.id)}
+                ondragend={endRowDrag}>drag_indicator</span
+              >
+              <p class="min-w-0 truncate text-xs text-text-main">{entry.label}</p>
+            </div>
+            <div class="flex items-center gap-2">
+              <div class="flex items-center gap-0.5">
+                <button
+                  type="button"
+                  title="Move up"
+                  aria-label="Move {entry.label} up"
+                  disabled={index === 0}
+                  onclick={() =>
+                    markLayoutEdit(() => (navOrder = moveNavEntry(navOrder, entry.id, -1)))}
+                  class="rounded p-0.5 text-text-muted transition-colors hover:text-text-main disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                >
+                  <span class="material-symbols-outlined text-[14px]">arrow_upward</span>
+                </button>
+                <button
+                  type="button"
+                  title="Move down"
+                  aria-label="Move {entry.label} down"
+                  disabled={index === siblings.length - 1}
+                  onclick={() =>
+                    markLayoutEdit(() => (navOrder = moveNavEntry(navOrder, entry.id, 1)))}
+                  class="rounded p-0.5 text-text-muted transition-colors hover:text-text-main disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                >
+                  <span class="material-symbols-outlined text-[14px]">arrow_downward</span>
+                </button>
+              </div>
+              <Toggle
+                checked={!hiddenNav.includes(entry.id)}
+                disabled={ALWAYS_VISIBLE_NAV_IDS.includes(entry.id)}
+                title={ALWAYS_VISIBLE_NAV_IDS.includes(entry.id)
+                  ? 'Always visible: this is the page the panel lives on'
+                  : ''}
+                size="sm"
+                label="{entry.label} in the sidebar"
+                onChange={(val: boolean) => {
+                  hiddenNav = setNavVisible(hiddenNav, entry.id, val)
+                }}
+              />
+            </div>
+          </div>
+        {/snippet}
+
+        {#each arrangedNavGroups(navOrder) as group (group.id)}
+          <div class="space-y-1">
+            {#if group.label}
+              <p class="text-[10px] font-semibold uppercase tracking-wider text-text-subtle">
+                {group.label}
+              </p>
+            {/if}
+            {#each group.entries as entry (entry.id)}
+              {@render navRow(entry, group.entries)}
+              {#if entry.kind === 'accordion'}
+                <div class="ml-4 space-y-1 border-l border-border-subtle pl-2">
+                  {#each entry.children as child (child.id)}
+                    {@render navRow(child, entry.children)}
+                  {/each}
+                </div>
+              {/if}
+            {/each}
+          </div>
+        {/each}
+      </div>
+    </Card>
+    {/if}
+    {#if advancedSettings}
+    <!-- SECTION: Usage dashboard. Per-panel visibility and arrangement for every
+         Usage section (Overview, Details, Cache Analytics, Compression
+         Analytics), folded away with the rest of the advanced settings: the
+         arrangement keeps driving the Usage page while the card is hidden. It has
+         no Save of its own on purpose — the presets, the toggles, the arrows and a
+         drag all raise the global reminder, and the global Save writes the
+         arrangement with the rest of the form. -->
+    <Card padding="md" class="space-y-4">
+      <div class="flex items-center justify-between gap-2 pb-2 border-b border-border">
+        <div class="flex items-center gap-2">
+          <Sliders class="w-4 h-4 text-brand-500" />
+          <h2 class="text-sm font-bold text-text-main">Usage dashboard</h2>
+        </div>
+      </div>
+      <div class="flex items-center justify-between gap-3">
+        <div class="min-w-0">
+          <p class="text-xs font-semibold text-text-main">Expand usage details</p>
+          <p class="text-[11px] text-text-subtle">
+            Activity Heatmap and Node Health open instead of starting collapsed
+          </p>
+        </div>
+        <Toggle
+          checked={detailsExpanded}
+          size="sm"
+          label="Expand usage details"
+          onChange={(val: boolean) => {
+            setDetailsExpandedByDefault(val)
+            detailsExpanded = isDetailsExpandedByDefault()
+          }}
+        />
+      </div>
+      <div class="space-y-4">
+        <div class="space-y-2">
+        <div class="space-y-1">
+          <label class="text-[11px] font-medium text-text-muted" for="usage-panel-preset">Preset</label>
+          <select
+            id="usage-panel-preset"
+            value={panelPreset}
+            title={panelHint}
+            onchange={(event) =>
+              markLayoutEdit(() =>
+                applyUsagePreset((event.currentTarget as HTMLSelectElement).value as UsagePanelPreset)
+              )}
+            class="w-full rounded-lg border border-border bg-surface-2 px-2.5 py-1.5 text-xs text-text-main focus:border-brand-500 focus:outline-none"
+          >
+            <!-- Shown only while the toggles match no preset: an arrangement of
+                 one's own is a state to read, not one to pick. -->
+            <option value="custom" disabled>Custom</option>
+            {#each USAGE_PANEL_PRESETS as preset (preset.id)}
+              <option value={preset.id} title={preset.hint}>{preset.label}</option>
+            {/each}
+          </select>
+        </div>
+          <p class="text-[11px] text-text-subtle">{panelHint}</p>
+        </div>
+        {#each USAGE_PANEL_GROUPS as group (group.id)}
+          {@const orderable = USAGE_PANEL_ORDERABLE_GROUPS.includes(group.id)}
+          <div class="space-y-2">
+            <div class="flex items-center justify-between gap-2">
+              <p class="text-[10px] font-semibold uppercase tracking-wider text-text-subtle">
+                {group.label}
+              </p>
+              {#if orderable}
+                <button
+                  type="button"
+                  onclick={() => markLayoutEdit(() => resetPanelOrder(group.id))}
+                  class="text-[10px] font-medium text-text-muted transition-colors hover:text-text-main cursor-pointer"
+                >
+                  Reset order
+                </button>
+              {:else}
+                <span class="text-[10px] text-text-subtle">Order fixed by the layout</span>
+              {/if}
+            </div>
+            {#each panelOrder(group.id) as itemId, index (itemId)}
+              {@const item = group.items.find((candidate) => candidate.id === itemId)}
+              {@const fixed = USAGE_PANEL_FIXED_POSITION[itemId]}
+              {@const grabbable = orderable && !fixed}
+              {@const landing = dragTarget?.id === itemId && dragId !== itemId}
+              <div
+                class="relative flex items-center justify-between gap-3 rounded-md px-1 py-1 {dragId ===
+                itemId
+                  ? 'opacity-40'
+                  : ''}"
+                ondragover={(event) => trackRowDrop(event, 'panel', itemId, group.id)}
+                ondragleave={(event) => leaveRowDrop(event, itemId)}
+                ondrop={(event) => dropOnRow(event, 'panel', itemId, group.id)}
+              >
+                {#if landing}
+                  <div
+                    class="pointer-events-none absolute inset-x-0 h-0.5 bg-primary {dragTarget?.before
+                      ? 'top-0'
+                      : 'bottom-0'}"
+                  ></div>
+                {/if}
+                <div class="flex min-w-0 items-center gap-1.5">
+                  {#if grabbable}
+                    <span
+                      class="material-symbols-outlined cursor-grab text-[14px] text-text-subtle active:cursor-grabbing"
+                      title="Drag to reorder"
+                      aria-hidden="true"
+                      draggable="true"
+                      ondragstart={(event) => startRowDrag(event, 'panel', itemId, group.id)}
+                      ondragend={endRowDrag}>drag_indicator</span
+                    >
+                  {/if}
+                  <p class="min-w-0 text-xs text-text-main">{item?.label}</p>
+                </div>
+                <div class="flex items-center gap-2">
+                  {#if orderable}
+                    <div class="flex items-center gap-0.5">
+                      <button
+                        type="button"
+                        title={fixed ?? 'Move up'}
+                        aria-label="Move {item?.label} up"
+                        disabled={Boolean(fixed) || index === 0}
+                        onclick={() => markLayoutEdit(() => movePanel(group.id, itemId, -1))}
+                        class="rounded p-0.5 text-text-muted transition-colors hover:text-text-main disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                      >
+                        <span class="material-symbols-outlined text-[14px]">arrow_upward</span>
+                      </button>
+                      <button
+                        type="button"
+                        title={fixed ?? 'Move down'}
+                        aria-label="Move {item?.label} down"
+                        disabled={Boolean(fixed) || index === panelOrder(group.id).length - 1}
+                        onclick={() => markLayoutEdit(() => movePanel(group.id, itemId, 1))}
+                        class="rounded p-0.5 text-text-muted transition-colors hover:text-text-main disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                      >
+                        <span class="material-symbols-outlined text-[14px]">arrow_downward</span>
+                      </button>
+                    </div>
+                  {/if}
+                  <Toggle
+                    checked={isPanelVisible(itemId)}
+                    size="sm"
+                    label={item?.label ?? itemId}
+                    onChange={(val: boolean) => setPanelVisible(itemId, val)}
+                  />
+                </div>
+              </div>
+            {/each}
+          </div>
+        {/each}
+      </div>
+    </Card>
+    {/if}
 
     <!-- Save reminder: an operator who flipped a switch must not walk away
          without saving. It appears on a change and hides itself again after a
