@@ -715,7 +715,7 @@
 
       <div class="flex items-center justify-between gap-3">
         <div class="min-w-0">
-          <p class="font-semibold text-text-main">Unit abbreviation</p>
+          <p class="text-xs font-semibold text-text-main">Unit abbreviation</p>
           <p class="text-[11px] text-text-subtle">Large numbers as 亿/万 (zh) or M/B (en); off → full numbers</p>
         </div>
         <Toggle
@@ -731,7 +731,7 @@
 
       <div class="flex items-center justify-between gap-3">
         <div class="min-w-0">
-          <p class="font-semibold text-text-main">Expand usage details</p>
+          <p class="text-xs font-semibold text-text-main">Expand usage details</p>
           <p class="text-[11px] text-text-subtle">
             Activity Heatmap and Node Health open instead of starting collapsed
           </p>
@@ -749,7 +749,7 @@
 
       <div class="flex items-center justify-between gap-3">
         <div class="min-w-0">
-          <p class="font-semibold text-text-main">Advanced settings</p>
+          <p class="text-xs font-semibold text-text-main">Advanced settings</p>
           <p class="text-[11px] text-text-subtle">
             Unfolds the currency rates, the per-panel Usage list and the sidebar features below.
             Folding them back changes nothing about what they do.
@@ -772,7 +772,7 @@
         {#each TOGGLEABLE_NAV_ENTRIES as entry (entry.id)}
           <div class="flex items-center justify-between gap-3">
             <div class="min-w-0">
-              <p class="font-semibold text-text-main">{entry.label} in the sidebar</p>
+              <p class="text-xs font-semibold text-text-main">{entry.label} in the sidebar</p>
               <p class="text-[11px] text-text-subtle">
                 Off: {entry.label} leaves the sidebar, its URL stops resolving, and the API-key
                 editor hides the Plan field
@@ -794,7 +794,7 @@
            because it is one of these preferences rather than a section of its
            own. The catalog and the formatting rules live in lib/currency.ts. -->
       <div class="space-y-3 border-t border-border pt-3">
-        <p class="text-[10px] font-semibold uppercase tracking-wider text-text-subtle">Currency</p>
+        <p class="text-[11px] text-text-subtle">Currency</p>
 
         <p class="text-xs text-text-muted leading-relaxed">
           Every cost is measured in USD and shown here in the currency you pick. The rates are yours
@@ -803,7 +803,7 @@
 
         <div class="space-y-3">
           <div class="space-y-1">
-            <label for="currency-code" class="text-[11px] font-medium text-text-muted">Display currency</label>
+            <label for="currency-code" class="text-xs font-semibold text-text-main">Display currency</label>
             <select
               id="currency-code"
               bind:value={currencyCode}
@@ -815,7 +815,7 @@
             </select>
           </div>
           <div class="flex items-center justify-between gap-3">
-            <span class="text-xs text-text-muted">Show USD next to the converted amount</span>
+            <span class="text-xs font-semibold text-text-main">Show USD next to the converted amount</span>
             <Toggle
               checked={currencyShowBoth}
               size="sm"
@@ -827,7 +827,7 @@
 
         {#if advancedSettings}
         <div class="space-y-1">
-          <p class="text-[11px] font-medium text-text-muted">Rates — one USD in each currency</p>
+          <p class="text-xs font-semibold text-text-main">Rates — one USD in each currency</p>
           <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
             {#each CURRENCY_CATALOG as option (option.code)}
               <label class="flex items-center gap-2 rounded-[10px] border border-border-subtle px-2 py-1.5">
@@ -853,9 +853,9 @@
             1 USD = {formatCost(1, { code: currencyCode, rates: currencyRates, showBoth: false })} ·
             {describeRates(currencySetting())}
           </p>
-          <Button variant="ghost" onclick={refreshRates} loading={isRefreshingRates}>
-            <RefreshCw class="w-3.5 h-3.5" />
-            <span>Refresh from provider</span>
+          <Button variant="secondary" size="sm" onclick={refreshRates} loading={isRefreshingRates}>
+            <RefreshCw class="w-3.5 h-3.5 text-text-muted" />
+            <span>Update currency</span>
           </Button>
         </div>
 

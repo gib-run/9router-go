@@ -52,6 +52,21 @@
   the edit dirty with the reminder still up rather than reporting a save that a
   reload would not read back. An edit that is never saved leaves the stored
   value untouched and keeps the reminder up.
+- **The Display card reads like the rest of the form.** Its row titles were
+  16px — twice the 12px semibold of Security & Password, whose "Require Password
+  on Localhost" is the house setting title — so "Unit abbreviation", "Expand
+  usage details", "Advanced settings", the sidebar row and the two currency
+  field labels are now `text-xs font-semibold text-text-main`, sitting over the
+  11px subtle captions they already matched. The `Currency` group heading loses
+  its 10px uppercase tracked treatment for the same 11px subtle caption every
+  other subtitle uses, and the rates action is a bordered secondary button
+  ("Update currency") instead of a ghosted "Refresh from provider" that read as
+  a link to the page rather than the button that fetches the rates.
+- **A squeezed switch stays a switch.** A row whose description wrapped — the
+  Advanced settings row, at 57px tall — shrank its `Toggle` to 19px of its 28px
+  track, which pushed the 12px knob past the end of the pill in the on state.
+  The switch is `shrink-0` now, so a long label shortens the text column
+  instead.
 - **Observability & Storage Retention no longer empties itself.** Its database
   size, row counts, reclaimable figure and the three prune/vacuum buttons all sat
   behind `{#if dbStats}`, and `loadDbStats()` swallowed the error — so on an
