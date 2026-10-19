@@ -108,8 +108,8 @@ func TestProviderTokenUsage_AddsTheCarryover(t *testing.T) {
 
 func TestResetProviderQuota_UnknownNode(t *testing.T) {
 	repo := openEphemeralSchemaDB(t)
-	if _, err := repo.ResetProviderQuota(context.Background(), "node-missing"); !errors.Is(err, errNoSuchProviderNode) {
-		t.Fatalf("ResetProviderQuota on an unknown node = %v, want errNoSuchProviderNode", err)
+	if _, err := repo.ResetProviderQuota(context.Background(), "node-missing"); !errors.Is(err, ErrNoSuchProviderNode) {
+		t.Fatalf("ResetProviderQuota on an unknown node = %v, want ErrNoSuchProviderNode", err)
 	}
 }
 

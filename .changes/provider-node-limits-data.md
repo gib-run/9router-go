@@ -137,5 +137,64 @@ queue had not made. Each waiter now starts only once the previous one is parked
 (`waitParked`, white-box on the queue depth), so the test asserts the queue's
 fairness instead of the scheduler's timing: 50 consecutive runs pass, including
 20 with six CPU burners saturating the machine.
+
+### feat(dashboard): a custom provider node's limits, its spend, and the live window
+
+The policy the data plane enforces is now editable and observable from the
+dashboard. `PUT /api/provider-nodes/{id}/limits` merges rather than replaces —
+an omitted field keeps its stored value, an explicit `0` clears it, a number
+sets it — with the same tri-state `mergeLimit` the per-key editor uses, so an
+operator does not have to learn a second one. A negative count and an
+unparseable contract timestamp answer 400, an id that names no node answers 404
+(a silent success would report a policy nobody can find again), and
+`POST /api/provider-nodes/{id}/quota/reset` moves the measurement mark without
+touching the history the analytics reads. `GET /api/provider-nodes` now carries a
+`limits` object per node — policy, `usedTokens`, `rpmUsedWindow`,
+`activeConcurrency`, `expired` — filled from two queries for the whole list
+(`ListProviderLimits` plus a new `ProviderTokenUsageByNode`, which unions the
+carryover so a node whose rows a prune already deleted still reports its spend),
+and from the same limiter the gateway meters with, so a dashboard figure and a
+refusal cannot disagree.
+
+Three gaps surfaced while writing the integration test, all of which the unit
+suite was structurally unable to see:
+
+1. **`SetRateLimiter` had no production caller.** The provider gate returns early
+   when the handler holds no limiter, so the whole per-node feature was inert on
+   a real boot while every unit test — which sets that field by hand — stayed
+   green. `SetupServerRouter` now hands the limiter over right after building it.
+2. **`resolvePrefixProvider` swallowed the node's refusal.** With an expired
+   contract the lookup fails, resolution fell through to the bare prefix, and the
+   client read `502 no active connections for provider: <prefix>` instead of the
+   typed 403 that names the cause. A node that is merely unusable now stays
+   pinned; a prefix that is also a built-in alias keeps its alias path, so an
+   unusable node cannot silently take requests meant for another provider.
+3. **The two write routes were mounted only in `dashboard.RegisterRoutes`**, which
+   nothing but the package's own tests calls — the binary mounts the dashboard API
+   from `SetupDashboardRoutes`. Both tests passed and the live server answered a
+   plain `404 page not found`. The routes are registered in both tables now, and
+   `TestProviderNodeLimitsAreEditableThroughTheRouter` drives them through the real
+   router so the next one added in a single place fails a test instead of a user.
+
+DB export/import carries the seven node limit columns and `quotaResetId`: a
+backup that quietly lifted a node's ceiling would turn disaster recovery into an
+accidental opening of the throttle, and restoring spend without its mark would
+charge the node for tokens it had been forgiven.
+
+Verified: 4 new handler cases (`provider_node_limits_test.go` — merge leaves other
+fields alone, negative/malformed/unparseable answers 400 without writing, an
+unknown node answers 404, a reset clears spend while keeping the budget and the
+history, and the list reports policy, spend and live window/concurrency from a
+limiter with one request in flight), 4 integration cases through the real router
+and a real SQLite file (an RPM ceiling answers 429 and the refused attempt never
+reaches the fake upstream; a spent quota answers 403
+`provider_token_quota_exhausted`; an expired contract answers 403
+`provider_contract_expired`; and the limits editor saves, lists and resets a
+node's policy through the router the binary actually mounts, which is where the
+route tables differ), a resolution case pinning that an unusable node still
+resolves to the node, and the `usageHistory` fixture in
+`provider_nodes_update_test.go` moved to the production column set (it was
+missing `promptTokens`/`completionTokens`, so the node list answered 500 rather
+than the test failing on the behaviour it was about).
 Rename this file to `<pr-number>-provider-node-limits-data.md` when the PR is
 opened, so the fragment orders correctly in the dashboard changelog.

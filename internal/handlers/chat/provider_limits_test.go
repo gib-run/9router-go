@@ -371,3 +371,31 @@ func TestGetBestConnection_SkipsAnUnusableNode(t *testing.T) {
 		t.Errorf("selection refusal does not name the cause: %s", body)
 	}
 }
+
+// A node whose contract has ended must still be the provider the request
+// resolves to. resolvePrefixProvider asks getBestConnection, which now refuses,
+// and treating that refusal as "this prefix is not a node" sends the request to
+// a provider no connection is registered under — the client then reads "no
+// active connections for provider: <prefix>" and the real reason never surfaces.
+func TestResolveModel_UnusableNodeStillResolvesToTheNode(t *testing.T) {
+	handler, repo := newProviderLimitHandler(t)
+	if err := repo.CreateProviderConnectionFull("conn-nara", "node-nara", "apikey", "Nara",
+		new(1), `{"apiKey":"sk-nara"}`); err != nil {
+		t.Fatalf("CreateProviderConnectionFull: %v", err)
+	}
+	seedLimitedProviderNode(t, repo, "node-nara", db.ProviderLimits{
+		ContractExpiresAt: time.Now().UTC().Add(-24 * time.Hour).Format(time.RFC3339),
+	})
+
+	info, err := handler.resolveModel("node-nara/glm-5.3")
+	if err != nil {
+		t.Fatalf("resolveModel: %v", err)
+	}
+	if info.Provider != "node-nara" {
+		t.Fatalf("resolved provider = %q, want the node id — a fall-through hides the node's own refusal",
+			info.Provider)
+	}
+	if info.ConnectionID != "" {
+		t.Errorf("ConnectionID = %q, want none: the node has no usable connection to pin", info.ConnectionID)
+	}
+}

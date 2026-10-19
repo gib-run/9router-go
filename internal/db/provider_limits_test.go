@@ -185,8 +185,8 @@ func TestSetProviderLimits_NormalisesContractExpiry(t *testing.T) {
 func TestSetProviderLimits_UnknownNode(t *testing.T) {
 	repo := openEphemeralSchemaDB(t)
 	err := repo.SetProviderLimits(context.Background(), "node-missing", ProviderLimits{RPM: 5})
-	if !errors.Is(err, errNoSuchProviderNode) {
-		t.Fatalf("SetProviderLimits on an unknown node = %v, want errNoSuchProviderNode", err)
+	if !errors.Is(err, ErrNoSuchProviderNode) {
+		t.Fatalf("SetProviderLimits on an unknown node = %v, want ErrNoSuchProviderNode", err)
 	}
 }
 

@@ -27,11 +27,11 @@ import (
 // 0 means unlimited and an empty contractExpiresAt means no expiry, the same
 // convention apiKeys.rateLimitRPM and apiKeys.expiresAt already use.
 
-// errNoSuchProviderNode is returned by the writers when the node id names no row.
+// ErrNoSuchProviderNode is returned by the writers when the node id names no row.
 // A reader answers the zero value instead (see GetProviderLimits), because an
 // unknown node and an unlimited one are the same policy as far as a caller is
 // concerned; a caller that must tell them apart reads the node row itself.
-var errNoSuchProviderNode = errors.New("no such provider node")
+var ErrNoSuchProviderNode = errors.New("no such provider node")
 
 // providerQuotaResetColumn is the providerNodes twin of quotaResetColumn: the
 // usageHistory row id a node's tokenQuota is measured from. It carries the same
@@ -185,7 +185,7 @@ func (r *Repo) SetProviderLimits(ctx context.Context, nodeID string, limits Prov
 		return fmt.Errorf("set provider limits %s: %w", nodeID, err)
 	}
 	if n, err := res.RowsAffected(); err == nil && n == 0 {
-		return errNoSuchProviderNode
+		return ErrNoSuchProviderNode
 	}
 	return nil
 }

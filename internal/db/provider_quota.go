@@ -66,7 +66,7 @@ func (r *Repo) ResetProviderQuota(ctx context.Context, nodeID string) (int, erro
 		return 0, fmt.Errorf("reset provider quota %s: %w", nodeID, err)
 	}
 	if n, err := res.RowsAffected(); err == nil && n == 0 {
-		return 0, errNoSuchProviderNode
+		return 0, ErrNoSuchProviderNode
 	}
 	if _, err := tx.ExecContext(ctx,
 		`DELETE FROM providerLedgerCarryover WHERE providerId = ?`, nodeID); err != nil {
@@ -140,4 +140,50 @@ func (r *Repo) ProviderTokenUsage(ctx context.Context, nodeID string) (int, erro
 		return 0, fmt.Errorf("get provider token usage: %w", err)
 	}
 	return int(used), nil
+}
+
+// ProviderTokenUsageByNode sums the same spend as ProviderTokenUsage for every
+// node in one query, keyed by node id. The dashboard lists every node with its
+// policy and usage, so a read per node there would be N+1 on a page load.
+//
+// Each node keeps its own reset mark, so the mark is resolved per row inside the
+// aggregate rather than passed in; the carryover is unioned instead of joined so a
+// node whose history a prune already deleted still reports the tokens that were
+// carried over (a join would drop exactly those rows). A node with neither history
+// nor carryover is simply absent, which the caller reads as zero.
+func (r *Repo) ProviderTokenUsageByNode(ctx context.Context) (map[string]int, error) {
+	usage := map[string]int{}
+	if r == nil || r.db == nil {
+		return usage, nil
+	}
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT providerId, SUM(tokens) FROM (
+		    SELECT h.provider AS providerId,
+		           SUM(COALESCE(h.promptTokens, 0) + COALESCE(h.completionTokens, 0)) AS tokens
+		      FROM usageHistory h
+		     WHERE h.provider <> ''
+		       AND h.id > COALESCE((SELECT n.quotaResetId FROM providerNodes n WHERE n.id = h.provider), 0)
+		     GROUP BY h.provider
+		    UNION ALL
+		    SELECT c.providerId, c.tokens
+		      FROM providerLedgerCarryover c
+		     WHERE c.providerId <> ''
+		) GROUP BY providerId`)
+	if err != nil {
+		return nil, fmt.Errorf("get provider token usage by node: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	for rows.Next() {
+		var nodeID string
+		var used int64
+		if err := rows.Scan(&nodeID, &used); err != nil {
+			return nil, fmt.Errorf("get provider token usage by node: %w", err)
+		}
+		usage[nodeID] = int(used)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("get provider token usage by node: %w", err)
+	}
+	return usage, nil
 }
