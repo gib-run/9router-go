@@ -180,8 +180,12 @@ export function usagePanelsDirty(): boolean {
 export function saveUsagePanels(): void {
   const snapshot: Layout = { hidden: [...draft.hidden], order: { ...defaultLayout().order } }
   for (const group of USAGE_PANEL_GROUPS) snapshot.order[group.id] = [...draft.order[group.id]]
+  // Write first, and only then call the layout stored: if the browser refuses
+  // the write (storage blocked, quota), the draft stays dirty and the reminder
+  // stays up, instead of reporting a save that a reload would not read back.
+  if (typeof localStorage !== 'undefined') {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ hidden: snapshot.hidden, order: snapshot.order }))
+  }
   saved = snapshot
   draft = snapshot
-  if (typeof localStorage === 'undefined') return
-  localStorage.setItem(STORAGE_KEY, JSON.stringify({ hidden: snapshot.hidden, order: snapshot.order }))
 }

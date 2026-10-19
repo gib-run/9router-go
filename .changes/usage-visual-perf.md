@@ -31,6 +31,27 @@
   localStorage preference) alongside the server settings. The panels whose
   position is fixed — the paged request list and its payload dialog — say so and
   cannot be dragged.
+- **A folded Display card.** The card held 1.34 screens of controls — the rate
+  grid alone is 203px of 13 inputs, the Usage card the same 1204px again — which
+  buried Runtime Storage a full screen below the fold. Both are now behind one
+  "Advanced settings" switch at the top of Display: off, the two cards render at
+  506px each and Runtime Storage sits 184px down; on, everything is exactly as
+  before. The fold is a disclosure preference (`advancedSettingsVisible` in
+  localStorage), not a feature flag — the currency still formats every cost and
+  the arrangement still drives the Usage page while folded — so the switch says
+  as much, and nothing is left unreachable. The sidebar feature row keeps its
+  own server-saved meaning inside the fold under a distinguishing label.
+- **The Usage dashboard preferences survive a saved edit.** The card edits a
+  draft; `localStorage` is written only by the global Save, after the settings
+  it was edited alongside have been accepted, and the draft only becomes the
+  stored value at that point — so a change that was saved is the one a reload
+  reads back (verified in both directions: a panel hidden, saved and reloaded
+  stays hidden; a panel unhidden, saved and reloaded stays shown, and the Usage
+  page draws the same selection). The write itself happens before the layout is
+  called stored, so a browser that refuses it — storage blocked, quota — leaves
+  the edit dirty with the reminder still up rather than reporting a save that a
+  reload would not read back. An edit that is never saved leaves the stored
+  value untouched and keeps the reminder up.
 - **Observability & Storage Retention no longer empties itself.** Its database
   size, row counts, reclaimable figure and the three prune/vacuum buttons all sat
   behind `{#if dbStats}`, and `loadDbStats()` swallowed the error — so on an
@@ -64,8 +85,10 @@ against a seeded local gateway: the combo flow card holds no `<animate>`, no
 `filter` and no blurred shadow (1→0, 1→0, 6→0), the topology map still draws
 every node, edge and token, a dragged panel reorders the list and the page,
 storage stays untouched until the reminder's Save is pressed (and then matches
-the arranged order exactly), and `period=7d` narrows the request table and its
-total.
+the arranged order exactly, surviving a reload in both directions), a fresh
+profile folds the rate grid, the panel list and the sidebar row behind the
+Advanced settings switch (1204px → 506px a card) and unfolds them again, and
+`period=7d` narrows the request table and its total.
 
 Upstream parity: `decolua/9router#381` is the combo flow card; the header change
 follows the house strip in `RequestDetailsTab.svelte`. No API, schema or `/v1`

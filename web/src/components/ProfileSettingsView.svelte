@@ -24,7 +24,12 @@
   import Input from '../lib/ui/Input.svelte'
   import { api, getAuthHeaders, responseErrorMessage, type DatabaseStats, type Settings } from '../api/client'
   import { isCompactUnitsEnabled, setCompactUnits } from '../lib/compactNumber'
-  import { isDetailsExpandedByDefault, setDetailsExpandedByDefault } from '../lib/displayPrefs'
+  import {
+    isAdvancedSettingsVisible,
+    isDetailsExpandedByDefault,
+    setAdvancedSettingsVisible,
+    setDetailsExpandedByDefault,
+  } from '../lib/displayPrefs'
   import {
     USAGE_PANEL_FIXED_POSITION,
     USAGE_PANEL_GROUPS,
@@ -95,6 +100,13 @@
   // Usage detail panels (Activity Heatmap, Node Health) start collapsed; the
   // switch below flips that default (detailsExpandedByDefault, localStorage).
   let detailsExpanded = $state(isDetailsExpandedByDefault())
+
+  // The heavy blocks below — the currency rate grid, the per-panel Usage list
+  // with its arrangement controls, and the sidebar feature-visibility row — stay
+  // folded until this is on. A disclosure preference like the two above, not a
+  // feature flag: the currency still formats every cost and the arrangement
+  // still drives the Usage page while folded.
+  let advancedSettings = $state(isAdvancedSettingsVisible())
   // Usage-page panel visibility and arrangement. The card below edits the draft
   // in lib/usagePanel.svelte.ts; the global Save writes it with the rest of the
   // form, so an edit there raises the same bottom-right reminder a switch does.
@@ -687,10 +699,12 @@
     onchange={handleSettingsInput}
     onclick={handleSettingsInput}
   >
-    <!-- SECTION: Display. Unit abbreviation, the usage-detail default, the
-         advanced-usage entries and the display currency. The two toggles apply
-         instantly (localStorage) while the currency is a saved setting, but they
-         are all items of this card: every change here raises the save reminder. -->
+    <!-- SECTION: Display. Unit abbreviation, the usage-detail default, an
+         advanced-settings disclosure that unfolds the currency rates, the
+         per-panel Usage list and the sidebar features, and the display currency
+         itself. The switches here are localStorage preferences that apply at
+         once, like the two toggles at the top: every change still raises the
+         save reminder, because the currency they sit beside is a saved setting. -->
     <Card padding="md" class="space-y-4">
       <div class="flex items-center justify-between pb-2 border-b border-border">
         <div class="flex items-center gap-2">
@@ -733,25 +747,48 @@
         />
       </div>
 
-      {#each TOGGLEABLE_NAV_ENTRIES as entry (entry.id)}
-        <div class="flex items-center justify-between gap-3">
-          <div class="min-w-0">
-            <p class="font-semibold text-text-main">Advanced usage</p>
-            <p class="text-[11px] text-text-subtle">
-              Off: {entry.label} leaves the sidebar, its URL stops resolving, and the API-key
-              editor hides the Plan field
-            </p>
-          </div>
-          <Toggle
-            checked={!hiddenNav.includes(entry.id)}
-            size="sm"
-            label="Advanced usage"
-            onChange={(val) => {
-              hiddenNav = setNavVisible(hiddenNav, entry.id, val)
-            }}
-          />
+      <div class="flex items-center justify-between gap-3">
+        <div class="min-w-0">
+          <p class="font-semibold text-text-main">Advanced settings</p>
+          <p class="text-[11px] text-text-subtle">
+            Unfolds the currency rates, the per-panel Usage list and the sidebar features below.
+            Folding them back changes nothing about what they do.
+          </p>
         </div>
-      {/each}
+        <Toggle
+          checked={advancedSettings}
+          size="sm"
+          label="Advanced settings"
+          onChange={(val: boolean) => {
+            setAdvancedSettingsVisible(val)
+            advancedSettings = isAdvancedSettingsVisible()
+          }}
+        />
+      </div>
+
+      {#if advancedSettings}
+        <!-- Feature visibility: sidebar entries this deployment keeps out. Its
+             value is saved with the settings; the fold above is local. -->
+        {#each TOGGLEABLE_NAV_ENTRIES as entry (entry.id)}
+          <div class="flex items-center justify-between gap-3">
+            <div class="min-w-0">
+              <p class="font-semibold text-text-main">{entry.label} in the sidebar</p>
+              <p class="text-[11px] text-text-subtle">
+                Off: {entry.label} leaves the sidebar, its URL stops resolving, and the API-key
+                editor hides the Plan field
+              </p>
+            </div>
+            <Toggle
+              checked={!hiddenNav.includes(entry.id)}
+              size="sm"
+              label="{entry.label} in the sidebar"
+              onChange={(val: boolean) => {
+                hiddenNav = setNavVisible(hiddenNav, entry.id, val)
+              }}
+            />
+          </div>
+        {/each}
+      {/if}
 
       <!-- Currency: the display currency every cost surface reads, kept here
            because it is one of these preferences rather than a section of its
@@ -788,6 +825,7 @@
           </div>
         </div>
 
+        {#if advancedSettings}
         <div class="space-y-1">
           <p class="text-[11px] font-medium text-text-muted">Rates — one USD in each currency</p>
           <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
@@ -808,6 +846,7 @@
             {/each}
           </div>
         </div>
+        {/if}
 
         <div class="flex flex-wrap items-center justify-between gap-2">
           <p class="text-[11px] text-text-subtle">
@@ -825,11 +864,14 @@
         {/if}
       </div>
     </Card>
+    {#if advancedSettings}
     <!-- SECTION: Usage dashboard. Per-panel visibility and arrangement for every
          Usage section (Overview, Details, Cache Analytics, Compression
-         Analytics). The card has no Save of its own on purpose: the presets, the
-         toggles, the arrows and a drag all raise the global reminder, and the
-         global Save writes the arrangement with the rest of the form. -->
+         Analytics), folded away with the rest of the advanced settings: the
+         arrangement keeps driving the Usage page while the card is hidden. It has
+         no Save of its own on purpose — the presets, the toggles, the arrows and a
+         drag all raise the global reminder, and the global Save writes the
+         arrangement with the rest of the form. -->
     <Card padding="md" class="space-y-4">
       <div class="flex items-center justify-between gap-2 pb-2 border-b border-border">
         <div class="flex items-center gap-2">
@@ -952,6 +994,7 @@
         {/each}
       </div>
     </Card>
+    {/if}
     <!-- SECTION 1: Runtime Storage -->
     <Card padding="md" class="space-y-4">
       <div class="flex items-center justify-between pb-2 border-b border-border">
