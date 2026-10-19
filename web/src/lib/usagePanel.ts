@@ -55,8 +55,11 @@ export const USAGE_PANEL_GROUPS: UsagePanelGroup[] = [
       { id: 'overview.kpi', label: 'KPI cards' },
       { id: 'overview.topology', label: 'Provider topology map' },
       { id: 'overview.recent', label: 'Recent requests' },
-      { id: 'overview.trend', label: 'Usage trend chart' },
       { id: 'overview.breakdown', label: 'Usage breakdown table' },
+      // The two collapsed-by-default panels sit at the bottom of the declared
+      // order, the way upstream draws them: a chevron row is the last thing on
+      // the page, not something a reader scrolls past to reach the numbers.
+      { id: 'overview.trend', label: 'Usage trend chart' },
       { id: 'overview.comboFlow', label: 'Combo flow' },
     ],
   },

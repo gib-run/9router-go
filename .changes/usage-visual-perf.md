@@ -107,6 +107,22 @@
   prompt — sat below the fold. They now follow Global System Prompt &
   Anti-Poisoning, in the same order, and the Advanced settings switch still
   folds Sidebar and Usage dashboard away (nine cards open, seven folded).
+- **Combo flow and Usage trend are collapsible, and stop querying when hidden.**
+  Ported from upstream #429: both optional Overview panels are Cards with a
+  chevron in the header, closed by default, and the two sit last in the declared
+  order so a reader reaches the numbers before a disclosure row. Hiding the Combo
+  flow panel in Settings now also skips `GET /api/combos` outright — the panel
+  draws nothing then, so the definitions would only cost a request and memory —
+  and turning it back on refetches without a reload, because the fetch reads the
+  arrangement reactively.
+- **Upstream's Usage Details removal is deliberately not taken.** Upstream #429
+  deleted the five Details summary cards (Total Requests, Lifetime Tokens, Peak
+  Day Tokens, Cache Hit Rate, Most Used Model) as redundant with the Overview.
+  They stay here: on this branch each of those is an arrangement panel an
+  operator can keep or hide, so the delete would remove a control rather than
+  duplicate a number. Verified in the browser with every Details panel enabled —
+  all five render (30,228 / 2.1B / 184.1M / 89.3% / perf-model), beside the
+  Activity Heatmap and Node Health.
 - **Observability & Storage Retention no longer empties itself.** Its database
   size, row counts, reclaimable figure and the three prune/vacuum buttons all sat
   behind `{#if dbStats}`, and `loadDbStats()` swallowed the error — so on an

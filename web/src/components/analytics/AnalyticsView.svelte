@@ -26,7 +26,8 @@
   import UsageChart from './UsageChart.svelte'
   import ProviderTopologyCard from './ProviderTopologyCard.svelte'
   import ComboFlowCard from './ComboFlowCard.svelte'
-  import { usageBlocks } from '../../lib/usagePanel.svelte'
+  import { usageBlocks, isPanelVisible } from '../../lib/usagePanel.svelte'
+  import Card from '../../lib/ui/Card.svelte'
   import { emailPrivacy, formatEmailLabel } from '../../lib/privacy'
   interface Props {
     connections?: ProviderConnection[]
@@ -48,6 +49,13 @@
   let section = $state<UsageSection>(USAGE_SECTION_BY_TAB[tab] ?? 'overview')
   let period = $state<Period>('today')
   let isFetching = $state(false)
+
+  // The two optional Overview panels start collapsed and say so with a chevron,
+  // the same affordance the Details panels use. Collapsed is a view state, not a
+  // preference: the switch that hides a panel outright is the arrangement's own
+  // visibility toggle, and that one also skips the combo query below.
+  let comboFlowOpen = $state(false)
+  let usageTrendOpen = $state(false)
 
   // Choosing a section has to move the URL when that section owns one, or the
   // next reload silently drops back to Overview.
@@ -169,8 +177,16 @@
     if (section === 'details') loadDetails(detailsPage, period)
   })
 
-  // Loaded once: editing a combo is rare, and a reload picks up the change.
+  // Loaded once: editing a combo is rare, and a reload picks up the change. The
+  // query is skipped outright while the Combo flow panel is hidden — the panel
+  // draws nothing then, so the definitions would only cost a request and memory
+  // (upstream #429). `isPanelVisible` reads the arrangement, so turning the panel
+  // back on in Settings refetches without a reload.
   $effect(() => {
+    if (!isPanelVisible('overview.comboFlow')) {
+      comboDefs = []
+      return
+    }
     let cancelled = false
     api
       .getCombos()
@@ -417,6 +433,47 @@
   <SectionMenu {section} onSectionChange={(next) => (section = next)} />
 {/snippet}
 
+<!-- Both optional Overview panels are collapsed by default and say so with a
+     chevron, the same affordance the Details panels use. -->
+{#snippet comboFlowIcon()}
+  <span class="material-symbols-outlined text-[18px]" aria-hidden="true">account_tree</span>
+{/snippet}
+{#snippet comboFlowToggle()}
+  <button
+    type="button"
+    aria-expanded={comboFlowOpen}
+    aria-label="Toggle Combo flow"
+    onclick={() => (comboFlowOpen = !comboFlowOpen)}
+    class="p-1 rounded-lg text-text-muted hover:text-text-main hover:bg-surface-2 transition-colors cursor-pointer"
+  >
+    <span
+      class="material-symbols-outlined text-[18px] transition-transform duration-200"
+      style:transform={comboFlowOpen ? 'rotate(180deg)' : 'rotate(0deg)'}
+    >
+      expand_more
+    </span>
+  </button>
+{/snippet}
+{#snippet usageTrendIcon()}
+  <span class="material-symbols-outlined text-[18px]" aria-hidden="true">monitoring</span>
+{/snippet}
+{#snippet usageTrendToggle()}
+  <button
+    type="button"
+    aria-expanded={usageTrendOpen}
+    aria-label="Toggle Usage trend"
+    onclick={() => (usageTrendOpen = !usageTrendOpen)}
+    class="p-1 rounded-lg text-text-muted hover:text-text-main hover:bg-surface-2 transition-colors cursor-pointer"
+  >
+    <span
+      class="material-symbols-outlined text-[18px] transition-transform duration-200"
+      style:transform={usageTrendOpen ? 'rotate(180deg)' : 'rotate(0deg)'}
+    >
+      expand_more
+    </span>
+  </button>
+{/snippet}
+
 
 <div class="flex min-w-0 flex-col gap-6 px-1 sm:px-0">
   <!-- The section picker and the window selector. Cache Analytics and
@@ -469,13 +526,19 @@
         <SummaryKpiCards {stats} />
       {:else if block.key === 'overview.comboFlow'}
         <!-- Combo flow: router -> combo -> members, only while a combo is in use
-             (or just finished). The provider map keeps its own animation. -->
-        <ComboFlowCard
-          combos={comboDefs}
-          {activeRequests}
-          recentRequests={stats.recentRequests || []}
-          {errorProvider}
-        />
+             (or just finished). The provider map keeps its own animation. The
+             panel starts collapsed: the flow is only interesting while a request
+             is moving, and an expanded empty tree reads as a broken panel. -->
+        <Card padding="md" title="Combo flow" icon={comboFlowIcon} action={comboFlowToggle}>
+          {#if comboFlowOpen}
+            <ComboFlowCard
+              combos={comboDefs}
+              {activeRequests}
+              recentRequests={stats.recentRequests || []}
+              {errorProvider}
+            />
+          {/if}
+        </Card>
       {:else if block.key === 'overview.topology+overview.recent'}
         <div class="grid min-w-0 grid-cols-1 items-stretch gap-2 lg:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
           {@render topologyMap()}
@@ -486,7 +549,18 @@
       {:else if block.key === 'overview.recent'}
         {@render recentRequestsCard()}
       {:else if block.key === 'overview.trend'}
-        <UsageChart {period} />
+        <!-- Usage trend: the same collapsed-by-default shape as Combo flow, so the
+             two optional panels read alike. -->
+        <Card
+          padding="md"
+          title="Usage trend"
+          icon={usageTrendIcon}
+          action={usageTrendToggle}
+        >
+          {#if usageTrendOpen}
+            <UsageChart {period} />
+          {/if}
+        </Card>
       {:else if block.key === 'overview.breakdown'}
         <UsageBreakdownTable {stats} />
       {/if}
