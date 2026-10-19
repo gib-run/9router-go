@@ -61,7 +61,11 @@
   its 10px uppercase tracked treatment for that same 12px semibold title, with
   "Every cost is measured…" demoted to its 11px subtle caption — before this it
   was the dimmest line of its own block, introducing a paragraph brighter than
-  itself. The rates action is a bordered secondary button
+  itself. Its two sub-headings — "Show USD next to the converted amount" and
+  "Rates — one USD in each currency" — drop the semibold they had, so they read
+  as labels under the group rather than as titles beside the one field label
+  ("Display currency") that still carries its weight.
+  The rates action is a bordered secondary button
   ("Update currency") instead of a ghosted "Refresh from provider" that read as
   a link to the page rather than the button that fetches the rates.
 - **A squeezed switch stays a switch.** A row whose description wrapped — the

@@ -815,7 +815,7 @@
             </select>
           </div>
           <div class="flex items-center justify-between gap-3">
-            <span class="text-xs font-semibold text-text-main">Show USD next to the converted amount</span>
+            <span class="text-xs text-text-main">Show USD next to the converted amount</span>
             <Toggle
               checked={currencyShowBoth}
               size="sm"
@@ -827,7 +827,7 @@
 
         {#if advancedSettings}
         <div class="space-y-1">
-          <p class="text-xs font-semibold text-text-main">Rates — one USD in each currency</p>
+          <p class="text-xs text-text-main">Rates — one USD in each currency</p>
           <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
             {#each CURRENCY_CATALOG as option (option.code)}
               <label class="flex items-center gap-2 rounded-[10px] border border-border-subtle px-2 py-1.5">
