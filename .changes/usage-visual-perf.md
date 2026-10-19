@@ -73,6 +73,29 @@
   track, which pushed the 12px knob past the end of the pill in the on state.
   The switch is `shrink-0` now, so a long label shortens the text column
   instead.
+- **The sidebar itself is arrangeable and hideable.** The advanced block in
+  Display used to offer one row — Plans — because that was the only entry the
+  panel could toggle. It now lists the whole sidebar, grouped the way the sidebar
+  groups it, with a switch per entry and up/down arrows plus a drag handle for
+  the order; `Settings` cannot be hidden (it is the page the panel lives on) but
+  it can be moved. Visibility and arrangement ride in the one server-side
+  `navVisibility` value (`{hidden, order}`), so a single Save publishes both and
+  every client draws the same sidebar; an empty `order` means "the order the
+  build declares", which is what Reset order writes back. Rows move only inside
+  their container — a Media Providers child stays with its accordion, and the
+  accordion moves as the one row it is — and a drag that starts in one list
+  cannot land in the other.
+- **The two arrangement editors share one implementation.** The list primitives
+  (`normalizeListAgainst`, `moveInList`, `moveBeforeInList`) moved to
+  `web/src/lib/orderList.ts`; the Usage panel arrangement and the sidebar
+  arrangement both call them, and the panel plan module keeps only the panel
+  pairing and the block folding it owns. On the server the same normalizer now
+  accepts `order` beside `hidden`: lower-cased, de-duplicated, pattern-checked,
+  capped at 64, and `settings` refused from the hide list alone.
+- **"Expand usage details" moves to the card it describes.** It set the default
+  state of the Usage page's Details panels, but sat in Display among the currency
+  preferences; it is now the first row of the Usage dashboard card, above the
+  preset.
 - **Observability & Storage Retention no longer empties itself.** Its database
   size, row counts, reclaimable figure and the three prune/vacuum buttons all sat
   behind `{#if dbStats}`, and `loadDbStats()` swallowed the error — so on an

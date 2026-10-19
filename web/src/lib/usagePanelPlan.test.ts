@@ -1,12 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import {
-  USAGE_PANEL_DEFAULT_ORDER,
-  blocksFor,
-  moveBefore,
-  moveInOrder,
-  normalizeOrder,
-} from './usagePanelPlan'
+import { USAGE_PANEL_DEFAULT_ORDER, blocksFor } from './usagePanelPlan'
+import { moveBeforeInList, moveInList, normalizeListAgainst } from './orderList'
 import { USAGE_PANEL_IDS, USAGE_PANEL_PRESETS } from './usagePanel'
 import type { UsagePanelId } from './usagePanel'
 
@@ -15,9 +10,9 @@ import type { UsagePanelId } from './usagePanel'
 // panel from its section for good, and a mis-paired row puts the topology map and
 // the Recent Requests list in the wrong half of the grid.
 
-test('normalizeOrder appends panels this build knows that storage predates', () => {
+test('the order repair appends panels this build knows that storage predates', () => {
   const stored = ['overview.breakdown', 'overview.kpi']
-  assert.deepEqual(normalizeOrder('overview', stored), [
+  assert.deepEqual(normalizeListAgainst(stored, USAGE_PANEL_DEFAULT_ORDER.overview), [
     'overview.breakdown',
     'overview.kpi',
     'overview.topology',
@@ -39,15 +34,15 @@ test('the Default preset hides the combo flow and the three Details-only cards',
   ])
 })
 
-test('normalizeOrder drops unknown and duplicated ids', () => {
+test('the order repair drops unknown and duplicated ids', () => {
   const stored = ['overview.kpi', 'overview.gone', 'overview.kpi']
-  const order = normalizeOrder('overview', stored)
+  const order = normalizeListAgainst(stored, USAGE_PANEL_DEFAULT_ORDER.overview)
   assert.equal(order[0], 'overview.kpi')
   assert.equal(order.length, USAGE_PANEL_DEFAULT_ORDER.overview.length)
 })
 
-test('normalizeOrder keeps a group to its own panels', () => {
-  const order = normalizeOrder('details', ['cache.entries', 'details.nodeHealth'])
+test('the order repair keeps a group to its own panels', () => {
+  const order = normalizeListAgainst(['cache.entries', 'details.nodeHealth'], USAGE_PANEL_DEFAULT_ORDER.details)
   assert.deepEqual(order.slice(0, 4), [
     'details.nodeHealth',
     'details.lifetime',
@@ -56,38 +51,38 @@ test('normalizeOrder keeps a group to its own panels', () => {
   ])
 })
 
-test('moveInOrder swaps one place and refuses to leave the list', () => {
+test('moveInList swaps one place and refuses to leave the list', () => {
   const order: UsagePanelId[] = ['overview.kpi', 'overview.trend', 'overview.breakdown']
-  assert.deepEqual(moveInOrder(order, 'overview.trend', -1), [
+  assert.deepEqual(moveInList(order, 'overview.trend', -1), [
     'overview.trend',
     'overview.kpi',
     'overview.breakdown',
   ])
-  assert.deepEqual(moveInOrder(order, 'overview.trend', 1), [
+  assert.deepEqual(moveInList(order, 'overview.trend', 1), [
     'overview.kpi',
     'overview.breakdown',
     'overview.trend',
   ])
   // Past an end: unchanged, which is what a disabled arrow button relies on.
-  assert.deepEqual(moveInOrder(order, 'overview.kpi', -1), order)
-  assert.deepEqual(moveInOrder(order, 'overview.breakdown', 1), order)
-  assert.deepEqual(moveInOrder(order, 'overview.missing' as UsagePanelId, 1), order)
+  assert.deepEqual(moveInList(order, 'overview.kpi', -1), order)
+  assert.deepEqual(moveInList(order, 'overview.breakdown', 1), order)
+  assert.deepEqual(moveInList(order, 'overview.missing' as UsagePanelId, 1), order)
 })
 
-test('moveBefore drops a panel into the slot above or below its target', () => {
+test('moveBeforeInList drops a panel into the slot above or below its target', () => {
   const order: UsagePanelId[] = [
     'overview.kpi',
     'overview.comboFlow',
     'overview.trend',
     'overview.breakdown',
   ]
-  assert.deepEqual(moveBefore(order, 'overview.breakdown', 'overview.kpi', true), [
+  assert.deepEqual(moveBeforeInList(order, 'overview.breakdown', 'overview.kpi', true), [
     'overview.breakdown',
     'overview.kpi',
     'overview.comboFlow',
     'overview.trend',
   ])
-  assert.deepEqual(moveBefore(order, 'overview.kpi', 'overview.trend', false), [
+  assert.deepEqual(moveBeforeInList(order, 'overview.kpi', 'overview.trend', false), [
     'overview.comboFlow',
     'overview.trend',
     'overview.kpi',
@@ -95,14 +90,14 @@ test('moveBefore drops a panel into the slot above or below its target', () => {
   ])
 })
 
-test('moveBefore leaves the order alone when the drop changes nothing', () => {
+test('moveBeforeInList leaves the order alone when the drop changes nothing', () => {
   const order: UsagePanelId[] = ['overview.kpi', 'overview.trend', 'overview.breakdown']
   // Onto itself, and into the gap the panel already sits in.
-  assert.deepEqual(moveBefore(order, 'overview.trend', 'overview.trend', true), order)
-  assert.deepEqual(moveBefore(order, 'overview.trend', 'overview.kpi', false), order)
-  assert.deepEqual(moveBefore(order, 'overview.trend', 'overview.breakdown', true), order)
+  assert.deepEqual(moveBeforeInList(order, 'overview.trend', 'overview.trend', true), order)
+  assert.deepEqual(moveBeforeInList(order, 'overview.trend', 'overview.kpi', false), order)
+  assert.deepEqual(moveBeforeInList(order, 'overview.trend', 'overview.breakdown', true), order)
   // An id this build does not know is not a drop target either.
-  assert.deepEqual(moveBefore(order, 'overview.gone' as UsagePanelId, 'overview.kpi', true), order)
+  assert.deepEqual(moveBeforeInList(order, 'overview.gone' as UsagePanelId, 'overview.kpi', true), order)
 })
 
 test('blocksFor pairs the two panels that share a row when they stay adjacent', () => {

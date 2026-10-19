@@ -49,7 +49,16 @@
     setPanelVisible,
     usagePanelsDirty,
   } from '../lib/usagePanel.svelte'
-  import { TOGGLEABLE_NAV_ENTRIES, orderHiddenNav, setNavVisible } from '../lib/nav'
+  import {
+    ALWAYS_VISIBLE_NAV_IDS,
+    arrangedNavGroups,
+    dropNavEntry,
+    moveNavEntry,
+    normalizeNavOrder,
+    orderHiddenNav,
+    setNavVisible,
+    type NavEntry,
+  } from '../lib/nav'
   import {
     CURRENCY_CATALOG,
     DEFAULT_RATES,
@@ -115,15 +124,25 @@
     USAGE_PANEL_PRESETS.find((p) => p.id === panelPreset)?.hint ?? 'Custom selection'
   )
 
-  // Drag-and-drop arrangement. A row's handle is the drag source and the row is
-  // the drop target, so a drag never starts from the toggle; the arrows stay as
-  // the keyboard path, since a drag has no keyboard equivalent. Both write the
-  // same draft, so one Save covers either.
+  // Drag-and-drop arrangement, shared by the Usage panel list and the sidebar
+  // list. A row's handle is the drag source and the row is the drop target, so a
+  // drag never starts from the toggle; the arrows stay as the keyboard path,
+  // since a drag has no keyboard equivalent. Both write the same draft, so one
+  // Save covers either — and a drag that started in one list cannot land in the
+  // other, which is what `zone` is for.
+  type DragZone = 'panel' | 'nav'
+  let dragZone = $state<DragZone | null>(null)
   let dragGroup = $state<UsagePanelGroupId | null>(null)
-  let dragId = $state<UsagePanelId | null>(null)
-  let dragTarget = $state<{ id: UsagePanelId; before: boolean } | null>(null)
+  let dragId = $state<string | null>(null)
+  let dragTarget = $state<{ id: string; before: boolean } | null>(null)
 
-  function startPanelDrag(event: DragEvent, group: UsagePanelGroupId, id: UsagePanelId) {
+  function startRowDrag(
+    event: DragEvent,
+    zone: DragZone,
+    id: string,
+    group: UsagePanelGroupId | null = null
+  ) {
+    dragZone = zone
     dragGroup = group
     dragId = id
     dragTarget = null
@@ -133,41 +152,58 @@
     }
   }
 
-  // Which half of the row the pointer is over decides whether the panel lands
-  // above or below it, which is the only drop feedback the list needs.
-  function trackPanelDrop(event: DragEvent, group: UsagePanelGroupId, id: UsagePanelId) {
-    if (dragGroup !== group || !dragId || dragId === id) return
+  // Which half of the row the pointer is over decides whether the row lands above
+  // or below it, which is the only drop feedback the list needs.
+  function trackRowDrop(
+    event: DragEvent,
+    zone: DragZone,
+    id: string,
+    group: UsagePanelGroupId | null = null
+  ) {
+    if (dragZone !== zone || !dragId || dragId === id) return
+    // The Usage list is drawn one section at a time, and a panel belongs to its
+    // section: a drop across sections has no destination.
+    if (zone === 'panel' && group !== dragGroup) return
     event.preventDefault()
     if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
     const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
     dragTarget = { id, before: event.clientY < rect.top + rect.height / 2 }
   }
 
-  function leavePanelDrop(event: DragEvent, id: UsagePanelId) {
+  function leaveRowDrop(event: DragEvent, id: string) {
     const row = event.currentTarget as HTMLElement
     if (dragTarget?.id === id && !row.contains(event.relatedTarget as Node | null)) dragTarget = null
   }
 
-  function dropPanelOn(event: DragEvent, group: UsagePanelGroupId, id: UsagePanelId) {
-    if (dragGroup !== group || !dragId) return
+  function dropOnRow(
+    event: DragEvent,
+    zone: DragZone,
+    id: string,
+    group: UsagePanelGroupId | null = null
+  ) {
+    if (dragZone !== zone || !dragId) return
+    if (zone === 'panel' && group !== dragGroup) return
     event.preventDefault()
-    sendPanelTo(group, dragId, id, dragTarget?.id === id ? dragTarget.before : true)
-    endPanelDrag()
+    const before = dragTarget?.id === id ? dragTarget.before : true
+    if (zone === 'panel' && dragGroup) {
+      sendPanelTo(dragGroup, dragId as UsagePanelId, id as UsagePanelId, before)
+    }
+    if (zone === 'nav') navOrder = dropNavEntry(navOrder, dragId, id, before)
+    endRowDrag()
     markUnsaved()
   }
 
-  function endPanelDrag() {
+  function endRowDrag() {
+    dragZone = null
     dragGroup = null
     dragId = null
     dragTarget = null
   }
 
-  /**
-   * The card has no Save of its own. Presets, the arrange buttons and a drop are
-   * not switch clicks, so they raise the settings reminder themselves — the same
-   * one the toggle below raises through the form's click handler.
-   */
-  function markPanelEdit(apply: () => void) {
+  // The cards have no Save of their own. A preset, an arrow, a drop or a switch
+  // inside them is not a form field, so each edit raises the settings reminder
+  // itself — the same one a settings input raises through the form handler.
+  function markLayoutEdit(apply: () => void) {
     apply()
     markUnsaved()
   }
@@ -178,6 +214,9 @@
   // Feature Visibility: ids of the sidebar entries this deployment hides. The
   // entry list itself lives in web/src/lib/nav.ts, shared with the sidebar.
   let hiddenNav = $state<string[]>([])
+  // The order those entries are drawn in. Empty means "the order
+  // web/src/lib/nav.ts declares", which is what Reset order writes back.
+  let navOrder = $state<string[]>([])
   // A visibility change is not saved until the operator presses Save, so the
   // button is offered on its own for a few seconds after a change.
   let showSaveHint = $state(false)
@@ -261,6 +300,7 @@
 
       // Feature Visibility
       hiddenNav = orderHiddenNav(settings.navVisibility)
+      navOrder = normalizeNavOrder(settings.navVisibility)
       // Currency
       applyCurrency(settings.displayCurrency)
     }
@@ -277,6 +317,7 @@
         if (typeof s.stickyRoundRobinLimit === 'number') stickyRoundRobinLimit = s.stickyRoundRobinLimit
         // Feature Visibility
         hiddenNav = orderHiddenNav(s.navVisibility)
+        navOrder = normalizeNavOrder(s.navVisibility)
         if (s.comboStrategy) comboStrategy = String(s.comboStrategy)
         if (typeof s.forceFallback === 'boolean') forceFallback = s.forceFallback
         enableSystemPrompt = !!s.systemPromptEnabled
@@ -426,7 +467,7 @@
         oidcClientId,
         oidcScopes,
         oidcLoginLabel,
-        navVisibility: { hidden: hiddenNav },
+        navVisibility: { hidden: hiddenNav, order: navOrder },
         samlEntryPoint,
         samlIssuer,
         samlCert,
@@ -729,23 +770,6 @@
         />
       </div>
 
-      <div class="flex items-center justify-between gap-3">
-        <div class="min-w-0">
-          <p class="text-xs font-semibold text-text-main">Expand usage details</p>
-          <p class="text-[11px] text-text-subtle">
-            Activity Heatmap and Node Health open instead of starting collapsed
-          </p>
-        </div>
-        <Toggle
-          checked={detailsExpanded}
-          size="sm"
-          label="Expand usage details"
-          onChange={(val: boolean) => {
-            setDetailsExpandedByDefault(val)
-            detailsExpanded = isDetailsExpandedByDefault()
-          }}
-        />
-      </div>
 
       <div class="flex items-center justify-between gap-3">
         <div class="min-w-0">
@@ -767,27 +791,111 @@
       </div>
 
       {#if advancedSettings}
-        <!-- Feature visibility: sidebar entries this deployment keeps out. Its
-             value is saved with the settings; the fold above is local. -->
-        {#each TOGGLEABLE_NAV_ENTRIES as entry (entry.id)}
-          <div class="flex items-center justify-between gap-3">
-            <div class="min-w-0">
-              <p class="text-xs font-semibold text-text-main">{entry.label} in the sidebar</p>
-              <p class="text-[11px] text-text-subtle">
-                Off: {entry.label} leaves the sidebar, its URL stops resolving, and the API-key
-                editor hides the Plan field
-              </p>
+        <!-- Sidebar: which entries this deployment draws, and in what order. Both
+             facts are one server-side value, so a single Save publishes them; the
+             fold above is the only local part. -->
+        {#snippet navRow(entry: NavEntry, siblings: NavEntry[])}
+          {@const index = siblings.findIndex((candidate) => candidate.id === entry.id)}
+          <div
+            class="relative flex items-center justify-between gap-3 rounded-md px-1 py-1 {dragZone ===
+            'nav' && dragId === entry.id
+              ? 'opacity-40'
+              : ''}"
+            ondragover={(event) => trackRowDrop(event, 'nav', entry.id)}
+            ondragleave={(event) => leaveRowDrop(event, entry.id)}
+            ondrop={(event) => dropOnRow(event, 'nav', entry.id)}
+          >
+            {#if dragTarget?.id === entry.id && dragId !== entry.id}
+              <div
+                class="pointer-events-none absolute inset-x-0 h-0.5 bg-primary {dragTarget?.before
+                  ? 'top-0'
+                  : 'bottom-0'}"
+              ></div>
+            {/if}
+            <div class="flex min-w-0 items-center gap-1.5">
+              <span
+                class="material-symbols-outlined cursor-grab text-[14px] text-text-subtle active:cursor-grabbing"
+                title="Drag to reorder"
+                aria-hidden="true"
+                draggable="true"
+                ondragstart={(event) => startRowDrag(event, 'nav', entry.id)}
+                ondragend={endRowDrag}>drag_indicator</span
+              >
+              <p class="min-w-0 truncate text-xs text-text-main">{entry.label}</p>
             </div>
-            <Toggle
-              checked={!hiddenNav.includes(entry.id)}
-              size="sm"
-              label="{entry.label} in the sidebar"
-              onChange={(val: boolean) => {
-                hiddenNav = setNavVisible(hiddenNav, entry.id, val)
-              }}
-            />
+            <div class="flex items-center gap-2">
+              <div class="flex items-center gap-0.5">
+                <button
+                  type="button"
+                  title="Move up"
+                  aria-label="Move {entry.label} up"
+                  disabled={index === 0}
+                  onclick={() =>
+                    markLayoutEdit(() => (navOrder = moveNavEntry(navOrder, entry.id, -1)))}
+                  class="rounded p-0.5 text-text-muted transition-colors hover:text-text-main disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                >
+                  <span class="material-symbols-outlined text-[14px]">arrow_upward</span>
+                </button>
+                <button
+                  type="button"
+                  title="Move down"
+                  aria-label="Move {entry.label} down"
+                  disabled={index === siblings.length - 1}
+                  onclick={() =>
+                    markLayoutEdit(() => (navOrder = moveNavEntry(navOrder, entry.id, 1)))}
+                  class="rounded p-0.5 text-text-muted transition-colors hover:text-text-main disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                >
+                  <span class="material-symbols-outlined text-[14px]">arrow_downward</span>
+                </button>
+              </div>
+              <Toggle
+                checked={!hiddenNav.includes(entry.id)}
+                disabled={ALWAYS_VISIBLE_NAV_IDS.includes(entry.id)}
+                title={ALWAYS_VISIBLE_NAV_IDS.includes(entry.id)
+                  ? 'Always visible: this is the page the panel lives on'
+                  : ''}
+                size="sm"
+                label="{entry.label} in the sidebar"
+                onChange={(val: boolean) => {
+                  hiddenNav = setNavVisible(hiddenNav, entry.id, val)
+                }}
+              />
+            </div>
           </div>
-        {/each}
+        {/snippet}
+
+        <div class="space-y-2 border-t border-border pt-3">
+          <div class="flex items-center justify-between gap-2">
+            <p class="text-xs font-semibold text-text-main">Sidebar</p>
+            <button
+              type="button"
+              onclick={() => markLayoutEdit(() => (navOrder = []))}
+              class="text-[10px] font-medium text-text-muted transition-colors hover:text-text-main cursor-pointer"
+            >
+              Reset order
+            </button>
+          </div>
+
+          {#each arrangedNavGroups(navOrder) as group (group.id)}
+            <div class="space-y-1">
+              {#if group.label}
+                <p class="text-[10px] font-semibold uppercase tracking-wider text-text-subtle">
+                  {group.label}
+                </p>
+              {/if}
+              {#each group.entries as entry (entry.id)}
+                {@render navRow(entry, group.entries)}
+                {#if entry.kind === 'accordion'}
+                  <div class="ml-4 space-y-1 border-l border-border-subtle pl-2">
+                    {#each entry.children as child (child.id)}
+                      {@render navRow(child, entry.children)}
+                    {/each}
+                  </div>
+                {/if}
+              {/each}
+            </div>
+          {/each}
+        </div>
       {/if}
 
       <!-- Currency: the display currency every cost surface reads, kept here
@@ -879,6 +987,23 @@
           <h2 class="text-sm font-bold text-text-main">Usage dashboard</h2>
         </div>
       </div>
+      <div class="flex items-center justify-between gap-3">
+        <div class="min-w-0">
+          <p class="text-xs font-semibold text-text-main">Expand usage details</p>
+          <p class="text-[11px] text-text-subtle">
+            Activity Heatmap and Node Health open instead of starting collapsed
+          </p>
+        </div>
+        <Toggle
+          checked={detailsExpanded}
+          size="sm"
+          label="Expand usage details"
+          onChange={(val: boolean) => {
+            setDetailsExpandedByDefault(val)
+            detailsExpanded = isDetailsExpandedByDefault()
+          }}
+        />
+      </div>
       <div class="space-y-4">
         <div class="space-y-2">
         <div class="space-y-1">
@@ -888,7 +1013,7 @@
             value={panelPreset}
             title={panelHint}
             onchange={(event) =>
-              markPanelEdit(() =>
+              markLayoutEdit(() =>
                 applyUsagePreset((event.currentTarget as HTMLSelectElement).value as UsagePanelPreset)
               )}
             class="w-full rounded-lg border border-border bg-surface-2 px-2.5 py-1.5 text-xs text-text-main focus:border-brand-500 focus:outline-none"
@@ -913,7 +1038,7 @@
               {#if orderable}
                 <button
                   type="button"
-                  onclick={() => markPanelEdit(() => resetPanelOrder(group.id))}
+                  onclick={() => markLayoutEdit(() => resetPanelOrder(group.id))}
                   class="text-[10px] font-medium text-text-muted transition-colors hover:text-text-main cursor-pointer"
                 >
                   Reset order
@@ -932,9 +1057,9 @@
                 itemId
                   ? 'opacity-40'
                   : ''}"
-                ondragover={(event) => trackPanelDrop(event, group.id, itemId)}
-                ondragleave={(event) => leavePanelDrop(event, itemId)}
-                ondrop={(event) => dropPanelOn(event, group.id, itemId)}
+                ondragover={(event) => trackRowDrop(event, 'panel', itemId, group.id)}
+                ondragleave={(event) => leaveRowDrop(event, itemId)}
+                ondrop={(event) => dropOnRow(event, 'panel', itemId, group.id)}
               >
                 {#if landing}
                   <div
@@ -950,8 +1075,8 @@
                       title="Drag to reorder"
                       aria-hidden="true"
                       draggable="true"
-                      ondragstart={(event) => startPanelDrag(event, group.id, itemId)}
-                      ondragend={endPanelDrag}>drag_indicator</span
+                      ondragstart={(event) => startRowDrag(event, 'panel', itemId, group.id)}
+                      ondragend={endRowDrag}>drag_indicator</span
                     >
                   {/if}
                   <p class="min-w-0 text-xs text-text-main">{item?.label}</p>
@@ -964,7 +1089,7 @@
                         title={fixed ?? 'Move up'}
                         aria-label="Move {item?.label} up"
                         disabled={Boolean(fixed) || index === 0}
-                        onclick={() => markPanelEdit(() => movePanel(group.id, itemId, -1))}
+                        onclick={() => markLayoutEdit(() => movePanel(group.id, itemId, -1))}
                         class="rounded p-0.5 text-text-muted transition-colors hover:text-text-main disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
                       >
                         <span class="material-symbols-outlined text-[14px]">arrow_upward</span>
@@ -974,7 +1099,7 @@
                         title={fixed ?? 'Move down'}
                         aria-label="Move {item?.label} down"
                         disabled={Boolean(fixed) || index === panelOrder(group.id).length - 1}
-                        onclick={() => markPanelEdit(() => movePanel(group.id, itemId, 1))}
+                        onclick={() => markLayoutEdit(() => movePanel(group.id, itemId, 1))}
                         class="rounded p-0.5 text-text-muted transition-colors hover:text-text-main disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
                       >
                         <span class="material-symbols-outlined text-[14px]">arrow_downward</span>

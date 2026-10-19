@@ -22,12 +22,10 @@ import {
   type UsagePanelId,
   type UsagePanelPreset,
 } from './usagePanel'
+import { moveBeforeInList, moveInList, normalizeListAgainst } from './orderList'
 import {
   USAGE_PANEL_DEFAULT_ORDER,
   blocksFor,
-  moveBefore,
-  moveInOrder,
-  normalizeOrder,
   type UsagePanelBlock,
 } from './usagePanelPlan'
 
@@ -76,7 +74,10 @@ function readStored(): Layout {
     const order = {} as Record<UsagePanelGroupId, UsagePanelId[]>
     for (const group of USAGE_PANEL_GROUPS) {
       const stored = source.order?.[group.id]
-      order[group.id] = normalizeOrder(group.id, Array.isArray(stored) ? stored : [])
+      order[group.id] = normalizeListAgainst(
+        Array.isArray(stored) ? stored : [],
+        USAGE_PANEL_DEFAULT_ORDER[group.id]
+      )
     }
     return { hidden, order }
   } catch {
@@ -112,7 +113,7 @@ export function panelOrder(group: UsagePanelGroupId): UsagePanelId[] {
 
 /** Moves one panel one place up (-1) or down (+1); a move past an end is a no-op. */
 export function movePanel(group: UsagePanelGroupId, id: UsagePanelId, delta: -1 | 1): void {
-  draft = { ...draft, order: { ...draft.order, [group]: moveInOrder(draft.order[group], id, delta) } }
+  draft = { ...draft, order: { ...draft.order, [group]: moveInList(draft.order[group], id, delta) } }
 }
 
 /**
@@ -129,7 +130,7 @@ export function sendPanelTo(
   if (USAGE_PANEL_FIXED_POSITION[id] || USAGE_PANEL_FIXED_POSITION[targetId]) return
   draft = {
     ...draft,
-    order: { ...draft.order, [group]: moveBefore(draft.order[group], id, targetId, before) },
+    order: { ...draft.order, [group]: moveBeforeInList(draft.order[group], id, targetId, before) },
   }
 }
 

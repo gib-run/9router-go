@@ -256,11 +256,12 @@ export interface Settings {
   outboundNoProxy?: string
   providerStrategies?: Record<string, ProviderStrategyConfig>
   /**
-   * Feature Visibility: sidebar entry ids the operator hid. The canonical id
-   * list lives in web/src/lib/nav.ts; the server only checks the shape
+   * Sidebar layout: the entry ids the operator hid, and the arrangement they
+   * moved the entries into. The canonical id list lives in web/src/lib/nav.ts;
+   * the server only checks the shape
    * (internal/handlers/dashboard/navvisibility.go).
    */
-  navVisibility?: { hidden?: string[] }
+  navVisibility?: { hidden?: string[]; order?: string[] }
   /**
    * Display currency for every cost surface. Costs themselves are stored in USD;
    * see web/src/lib/currency.ts for the catalog and the formatting rules.
