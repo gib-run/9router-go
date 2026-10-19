@@ -33,6 +33,7 @@
     USAGE_PANEL_PRESETS,
     type UsagePanelGroupId,
     type UsagePanelId,
+    type UsagePanelPreset,
     activeUsagePreset,
     applyUsagePreset,
     isPanelVisible,
@@ -74,6 +75,7 @@
   let maxRequestRecords = $state<number>(5000)
   let usageHistoryRetentionDays = $state<number>(0)
   let dbStats = $state<DatabaseStats | null>(null)
+  let dbStatsError = $state<string | null>(null)
   let isPruning = $state(false)
   let isPruningUsage = $state(false)
   let isVacuuming = $state(false)
@@ -576,8 +578,12 @@
   async function loadDbStats() {
     try {
       dbStats = await api.getDatabaseStats()
-    } catch {
-      // best-effort
+      dbStatsError = null
+    } catch (err) {
+      // The card renders without the numbers rather than not at all: the rows
+      // fall back to "—" and the prune/vacuum actions stay reachable, because a
+      // failed probe must not take the buttons with it.
+      dbStatsError = err instanceof Error ? err.message : String(err)
     }
   }
 
@@ -682,9 +688,9 @@
     onchange={handleSettingsInput}
     onclick={handleSettingsInput}
   >
-    <!-- SECTION: Display. Unit abbreviation and the usage-detail default are
-         localStorage preferences; the sidebar switch below them is a saved
-         setting (navVisibility), so a change there raises the save reminder. -->
+    <!-- SECTION: Display. Unit abbreviation and the usage-detail default apply
+         instantly (localStorage), but they are settings items: every change here
+         raises the same save reminder the saved settings do. -->
     <Card padding="md" class="space-y-4">
       <div class="flex items-center justify-between pb-2 border-b border-border">
         <div class="flex items-center gap-2">
@@ -698,17 +704,15 @@
           <p class="font-semibold text-text-main">Unit abbreviation</p>
           <p class="text-[11px] text-text-subtle">Large numbers as 亿/万 (zh) or M/B (en); off → full numbers</p>
         </div>
-        <div data-save-hint="off">
-          <Toggle
-            checked={compactUnits}
-            size="sm"
-            label="Unit abbreviation"
-            onChange={(val: boolean) => {
-              setCompactUnits(val)
-              compactUnits = isCompactUnitsEnabled()
-            }}
-          />
-        </div>
+        <Toggle
+          checked={compactUnits}
+          size="sm"
+          label="Unit abbreviation"
+          onChange={(val: boolean) => {
+            setCompactUnits(val)
+            compactUnits = isCompactUnitsEnabled()
+          }}
+        />
       </div>
 
       <div class="flex items-center justify-between gap-3">
@@ -718,17 +722,15 @@
             Activity Heatmap and Node Health open instead of starting collapsed
           </p>
         </div>
-        <div data-save-hint="off">
-          <Toggle
-            checked={detailsExpanded}
-            size="sm"
-            label="Expand usage details"
-            onChange={(val: boolean) => {
-              setDetailsExpandedByDefault(val)
-              detailsExpanded = isDetailsExpandedByDefault()
-            }}
-          />
-        </div>
+        <Toggle
+          checked={detailsExpanded}
+          size="sm"
+          label="Expand usage details"
+          onChange={(val: boolean) => {
+            setDetailsExpandedByDefault(val)
+            detailsExpanded = isDetailsExpandedByDefault()
+          }}
+        />
       </div>
 
       {#each TOGGLEABLE_NAV_ENTRIES as entry (entry.id)}
@@ -765,29 +767,26 @@
       </div>
       <div class="space-y-4">
         <div class="space-y-2">
-          <div class="flex flex-wrap items-center gap-2">
+        <div class="space-y-1">
+          <label class="text-[11px] font-medium text-text-muted" for="usage-panel-preset">Preset</label>
+          <select
+            id="usage-panel-preset"
+            value={panelPreset}
+            title={panelHint}
+            onchange={(event) =>
+              markPanelEdit(() =>
+                applyUsagePreset((event.currentTarget as HTMLSelectElement).value as UsagePanelPreset)
+              )}
+            class="w-full rounded-lg border border-border bg-surface-2 px-2.5 py-1.5 text-xs text-text-main focus:border-brand-500 focus:outline-none"
+          >
+            <!-- Shown only while the toggles match no preset: an arrangement of
+                 one's own is a state to read, not one to pick. -->
+            <option value="custom" disabled>Custom</option>
             {#each USAGE_PANEL_PRESETS as preset (preset.id)}
-              <button
-                type="button"
-                title={preset.hint}
-                aria-pressed={panelPreset === preset.id}
-                onclick={() => markPanelEdit(() => applyUsagePreset(preset.id))}
-                class="rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition-colors cursor-pointer {panelPreset ===
-                preset.id
-                  ? 'border-primary bg-primary/10 text-primary'
-                  : 'border-border text-text-muted hover:border-primary/40 hover:text-text-main'}"
-              >
-                {preset.label}
-              </button>
+              <option value={preset.id} title={preset.hint}>{preset.label}</option>
             {/each}
-            {#if panelPreset === 'custom'}
-              <span
-                class="rounded-lg border border-primary/40 bg-primary/10 px-2.5 py-1 text-[11px] font-semibold text-primary"
-              >
-                Custom
-              </span>
-            {/if}
-          </div>
+          </select>
+        </div>
           <p class="text-[11px] text-text-subtle">{panelHint}</p>
         </div>
         {#each USAGE_PANEL_GROUPS as group (group.id)}
@@ -1287,61 +1286,88 @@
           </div>
         </div>
 
-        <!-- Database Storage Stats & Actions -->
-        {#if dbStats}
-          <div class="p-3 rounded-xl bg-bg border border-border space-y-3">
-            <div class="flex flex-wrap items-center justify-between gap-2 text-[11px]">
-              <div>
-                <span class="text-text-muted">Database File Size: </span>
-                <span class="font-mono font-semibold text-text-main">{formatBytes(dbStats.databaseSizeBytes)}</span>
-              </div>
-              <div>
-                <span class="text-text-muted">Request Details: </span>
-                <span class="font-mono font-semibold text-text-main">{dbStats.requestDetailsCount.toLocaleString()} rows</span>
-              </div>
-              <div>
-                <span class="text-text-muted">Usage Ledger: </span>
-                <span class="font-mono font-semibold text-text-main">{dbStats.usageHistoryCount.toLocaleString()} rows</span>
-                {#if dbStats.usageHistoryOldestTimestamp}
-                  <span class="text-[10px] text-text-subtle font-mono ml-1">(since {dbStats.usageHistoryOldestTimestamp.slice(0, 10)})</span>
-                {/if}
-              </div>
-              {#if dbStats.reclaimableBytes > 0}
-                <div>
-                  <span class="text-text-muted">Reclaimable: </span>
-                  <span class="font-mono font-semibold text-amber-500">{formatBytes(dbStats.reclaimableBytes)}</span>
-                </div>
+        <!-- Database Storage Stats & Actions. The numbers come from the
+             admin-session stats endpoint, so an install whose dashboard is open
+             without a session (requireLogin off) fails it while every other card
+             works: the rows then read "—" and the reason is printed, instead of
+             the whole block — buttons included — vanishing. -->
+        <div class="p-3 rounded-xl bg-bg border border-border space-y-3">
+          <div class="flex flex-wrap items-center justify-between gap-2 text-[11px]">
+            <div>
+              <span class="text-text-muted">Database File Size: </span>
+              <span class="font-mono font-semibold text-text-main"
+                >{dbStats ? formatBytes(dbStats.databaseSizeBytes) : '—'}</span
+              >
+            </div>
+            <div>
+              <span class="text-text-muted">Request Details: </span>
+              <span class="font-mono font-semibold text-text-main"
+                >{dbStats ? `${(dbStats.requestDetailsCount ?? 0).toLocaleString()} rows` : '—'}</span
+              >
+            </div>
+            <div>
+              <span class="text-text-muted">Usage Ledger: </span>
+              <span class="font-mono font-semibold text-text-main"
+                >{dbStats ? `${(dbStats.usageHistoryCount ?? 0).toLocaleString()} rows` : '—'}</span
+              >
+              {#if dbStats?.usageHistoryOldestTimestamp}
+                <span class="text-[10px] text-text-subtle font-mono ml-1"
+                  >(since {dbStats.usageHistoryOldestTimestamp.slice(0, 10)})</span
+                >
               {/if}
             </div>
+            {#if !dbStats || (dbStats.reclaimableBytes ?? 0) > 0}
+              <div>
+                <span class="text-text-muted">Reclaimable: </span>
+                <span class="font-mono font-semibold text-amber-500"
+                  >{dbStats ? formatBytes(dbStats.reclaimableBytes ?? 0) : '—'}</span
+                >
+              </div>
+            {/if}
+          </div>
 
-            <div class="flex flex-wrap gap-2 pt-1 border-t border-border-subtle/60">
+          {#if dbStatsError}
+            <div
+              class="flex flex-wrap items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-2 text-[11px] text-amber-500"
+            >
+              <span>Storage stats unavailable — {dbStatsError}</span>
               <button
                 type="button"
-                onclick={handlePrune}
-                disabled={isPruning}
-                class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-2 hover:bg-surface-3 border border-border text-xs text-text-main font-medium transition cursor-pointer disabled:opacity-50"
+                onclick={loadDbStats}
+                class="rounded-md border border-amber-500/40 px-2 py-0.5 font-semibold transition-colors hover:bg-amber-500/20 cursor-pointer"
               >
-                <span>{isPruning ? 'Pruning...' : 'Prune Expired Records'}</span>
-              </button>
-              <button
-                type="button"
-                onclick={handlePruneUsage}
-                disabled={isPruningUsage || !dbStats || dbStats.usageHistoryCount === 0}
-                class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-2 hover:bg-surface-3 border border-border text-xs text-text-main font-medium transition cursor-pointer disabled:opacity-50"
-              >
-                <span>{isPruningUsage ? 'Pruning Ledger...' : 'Prune Usage History'}</span>
-              </button>
-              <button
-                type="button"
-                onclick={handleVacuum}
-                disabled={isVacuuming}
-                class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-500/10 hover:bg-brand-500/20 border border-brand-500/30 text-xs text-brand-500 font-semibold transition cursor-pointer disabled:opacity-50"
-              >
-                <span>{isVacuuming ? 'Compacting...' : 'Compact Database (VACUUM)'}</span>
+                Retry
               </button>
             </div>
+          {/if}
+
+          <div class="flex flex-wrap gap-2 pt-1 border-t border-border-subtle/60">
+            <button
+              type="button"
+              onclick={handlePrune}
+              disabled={isPruning}
+              class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-2 hover:bg-surface-3 border border-border text-xs text-text-main font-medium transition cursor-pointer disabled:opacity-50"
+            >
+              <span>{isPruning ? 'Pruning...' : 'Prune Expired Records'}</span>
+            </button>
+            <button
+              type="button"
+              onclick={handlePruneUsage}
+              disabled={isPruningUsage || (dbStats !== null && (dbStats.usageHistoryCount ?? 0) === 0)}
+              class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-2 hover:bg-surface-3 border border-border text-xs text-text-main font-medium transition cursor-pointer disabled:opacity-50"
+            >
+              <span>{isPruningUsage ? 'Pruning Ledger...' : 'Prune Usage History'}</span>
+            </button>
+            <button
+              type="button"
+              onclick={handleVacuum}
+              disabled={isVacuuming}
+              class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-500/10 hover:bg-brand-500/20 border border-brand-500/30 text-xs text-brand-500 font-semibold transition cursor-pointer disabled:opacity-50"
+            >
+              <span>{isVacuuming ? 'Compacting...' : 'Compact Database (VACUUM)'}</span>
+            </button>
           </div>
-        {/if}
+        </div>
       </div>
     </Card>
 

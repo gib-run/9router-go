@@ -919,12 +919,19 @@ export function onUnauthorized(listener: UnauthorizedListener): () => void {
 let unauthorizedTimer: number | null = null
 
 export function handleUnauthorized(path?: string) {
-  // Do not redirect for public auth endpoints or if already on login page
+  // Do not redirect for public auth endpoints, for the storage stats probe, or
+  // if already on the login page. The stats probe is read-only and always
+  // admin-gated on the server, so on an install whose dashboard is open without
+  // a session it answers 401 while every other call succeeds — bouncing the
+  // operator to the login screen and clearing the stored key there was wrong;
+  // the storage card reports the 401 and offers a retry instead. A genuinely
+  // expired session still logs out through any other request.
   if (
     path === '/api/auth/login' ||
     path === '/api/auth/status' ||
     path === '/api/settings/require-login' ||
-    path === '/api/changelog'
+    path === '/api/changelog' ||
+    path === '/api/settings/database/stats'
   ) {
     return
   }

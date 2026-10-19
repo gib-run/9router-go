@@ -7,6 +7,7 @@ import {
   moveInOrder,
   normalizeOrder,
 } from './usagePanelPlan'
+import { USAGE_PANEL_IDS, USAGE_PANEL_PRESETS } from './usagePanel'
 import type { UsagePanelId } from './usagePanel'
 
 // The arrangement decides what the Usage page draws and in which order, and the
@@ -19,10 +20,22 @@ test('normalizeOrder appends panels this build knows that storage predates', () 
   assert.deepEqual(normalizeOrder('overview', stored), [
     'overview.breakdown',
     'overview.kpi',
-    'overview.comboFlow',
     'overview.topology',
     'overview.recent',
     'overview.trend',
+    'overview.comboFlow',
+  ])
+})
+
+test('the Default preset hides the combo flow and the three Details-only cards', () => {
+  const preset = USAGE_PANEL_PRESETS.find((p) => p.id === 'default')
+  assert.ok(preset, 'the default preset must exist')
+  const hidden = USAGE_PANEL_IDS.filter((id) => !preset.visible.includes(id))
+  assert.deepEqual(hidden, [
+    'overview.comboFlow',
+    'details.lifetime',
+    'details.heatmap',
+    'details.nodeHealth',
   ])
 })
 

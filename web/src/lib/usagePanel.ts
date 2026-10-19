@@ -53,11 +53,11 @@ export const USAGE_PANEL_GROUPS: UsagePanelGroup[] = [
     label: 'Usage › Overview',
     items: [
       { id: 'overview.kpi', label: 'KPI cards' },
-      { id: 'overview.comboFlow', label: 'Combo flow' },
       { id: 'overview.topology', label: 'Provider topology map' },
       { id: 'overview.recent', label: 'Recent requests' },
       { id: 'overview.trend', label: 'Usage trend chart' },
       { id: 'overview.breakdown', label: 'Usage breakdown table' },
+      { id: 'overview.comboFlow', label: 'Combo flow' },
     ],
   },
   {
@@ -98,7 +98,7 @@ export const USAGE_PANEL_GROUPS: UsagePanelGroup[] = [
 
 export const USAGE_PANEL_IDS: UsagePanelId[] = USAGE_PANEL_GROUPS.flatMap((g) => g.items.map((i) => i.id))
 
-export type UsagePanelPreset = 'advanced' | 'simple' | 'super-lite'
+export type UsagePanelPreset = 'default' | 'advanced' | 'simple' | 'super-lite'
 
 export interface UsagePanelPresetDef {
   id: UsagePanelPreset
@@ -129,13 +129,33 @@ export const USAGE_PANEL_FIXED_POSITION: Partial<Record<UsagePanelId, string>> =
 export const USAGE_PANEL_ORDERABLE_GROUPS: UsagePanelGroupId[] = ['overview', 'details']
 
 /**
- * Three ready-made shapes. Advanced is everything; Simple drops the two animated
- * maps and the operational panels; Super Lite keeps only the four reads an
- * operator checks on a phone — the KPI row, the recent list, lifetime totals and
- * the request table. A preset fills the toggles only: an arrangement, once made,
- * is kept.
+ * The panels a dashboard that has never been arranged starts without: the
+ * animated combo flow, and the three Details cards that only repeat what the
+ * Overview already says. defaultLayout() hides these, and the Default preset
+ * restores exactly this set.
+ */
+export const USAGE_PANEL_DEFAULT_HIDDEN: UsagePanelId[] = [
+  'overview.comboFlow',
+  'details.lifetime',
+  'details.heatmap',
+  'details.nodeHealth',
+]
+
+/**
+ * Four ready-made shapes. Default is what an unarranged dashboard shows: no
+ * combo flow, and the Details section down to its paged request table. Advanced
+ * is everything; Simple drops the two animated maps and the operational panels;
+ * Super Lite keeps only the four reads an operator checks on a phone — the KPI
+ * row, the recent list, lifetime totals and the request table. A preset fills
+ * the toggles only: an arrangement, once made, is kept.
  */
 export const USAGE_PANEL_PRESETS: UsagePanelPresetDef[] = [
+  {
+    id: 'default',
+    label: 'Default',
+    hint: 'No combo flow, no Details-only cards',
+    visible: USAGE_PANEL_IDS.filter((id) => !USAGE_PANEL_DEFAULT_HIDDEN.includes(id)),
+  },
   {
     id: 'advanced',
     label: 'Advanced',

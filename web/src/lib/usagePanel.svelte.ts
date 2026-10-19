@@ -13,6 +13,7 @@
  * lib/currency.svelte.ts keeps `current` private and exports readers.
  */
 import {
+  USAGE_PANEL_DEFAULT_HIDDEN,
   USAGE_PANEL_FIXED_POSITION,
   USAGE_PANEL_GROUPS,
   USAGE_PANEL_IDS,
@@ -58,7 +59,7 @@ function isPanelId(value: unknown): value is UsagePanelId {
 function defaultLayout(): Layout {
   const order = {} as Record<UsagePanelGroupId, UsagePanelId[]>
   for (const group of USAGE_PANEL_GROUPS) order[group.id] = [...USAGE_PANEL_DEFAULT_ORDER[group.id]]
-  return { hidden: [], order }
+  return { hidden: [...USAGE_PANEL_DEFAULT_HIDDEN], order }
 }
 
 function readStored(): Layout {

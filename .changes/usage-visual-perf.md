@@ -22,13 +22,26 @@
 - **Usage dashboard preferences (Settings).** Every Usage panel — Overview,
   Details, Cache Analytics and Compression Analytics, 22 in all — can be hidden
   individually, and the leading groups reordered by drag or by the arrow
-  buttons. Three presets (Advanced / Simple / Super Lite) fill the whole toggle
-  set, and "Reset order" restores one group. The card has no Save of its own: an
-  edit raises the same bottom-right "Unsaved changes" reminder the rest of the
+  buttons. A Default / Advanced / Simple / Super Lite dropdown fills the whole
+  toggle set — Default is what an unarranged dashboard shows (no combo flow, no
+  Details-only cards) and the control reads "Custom" once the toggles match no
+  preset — and "Reset order" restores one group. The card has no Save of its own:
+  an edit raises the same bottom-right "Unsaved changes" reminder the rest of the
   settings form uses, and that Save writes the arrangement (a `usagePanelLayout`
   localStorage preference) alongside the server settings. The panels whose
   position is fixed — the paged request list and its payload dialog — say so and
   cannot be dragged.
+- **Observability & Storage Retention no longer empties itself.** Its database
+  size, row counts, reclaimable figure and the three prune/vacuum buttons all sat
+  behind `{#if dbStats}`, and `loadDbStats()` swallowed the error — so on an
+  install whose dashboard runs without an admin session (requireLogin off), where
+  the always-protected `/api/settings/database/stats` answers 401 while every
+  other call succeeds, the whole block and its buttons disappeared with no
+  explanation. The rows now fall back to "—", the reason is printed with a Retry
+  button, the actions stay reachable, and a partial payload can no longer crash
+  the render (`undefined.toLocaleString()`). That 401 also no longer trips the
+  global unauthorized handler, which was clearing the stored key and bouncing the
+  operator to the login screen over a read-only probe.
 - **Details period filter.** The Request Details table now takes the same
   `?period` window as the Overview instead of ignoring the picker:
   `GetRequestDetailsPaged` gained a `since` predicate, the handler derives it
