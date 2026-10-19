@@ -42,6 +42,10 @@
   the render (`undefined.toLocaleString()`). That 401 also no longer trips the
   global unauthorized handler, which was clearing the stored key and bouncing the
   operator to the login screen over a read-only probe.
+- **Currency card.** "Show USD next to the converted amount" was the second column
+  of a two-column grid, so from the `sm` breakpoint up it sat beside the currency
+  selector as if it scoped that one control. It is now the row under the selector,
+  where the switch reads as the card-level preference it is.
 - **Details period filter.** The Request Details table now takes the same
   `?period` window as the Overview instead of ignoring the picker:
   `GetRequestDetailsPaged` gained a `since` predicate, the handler derives it

@@ -1457,7 +1457,7 @@
         to keep: edit them, or refresh them from a public provider.
       </p>
 
-      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <div class="space-y-3">
         <div class="space-y-1">
           <label for="currency-code" class="text-[11px] font-medium text-text-muted">Display currency</label>
           <select
@@ -1470,7 +1470,7 @@
             {/each}
           </select>
         </div>
-        <div class="flex items-center justify-between gap-3 rounded-[10px] border border-border-subtle px-3 py-2">
+        <div class="flex items-center justify-between gap-3">
           <span class="text-xs text-text-muted">Show USD next to the converted amount</span>
           <Toggle
             checked={currencyShowBoth}
