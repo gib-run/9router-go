@@ -6,6 +6,7 @@
   import Modal from '../../lib/ui/Modal.svelte'
   import { api, type ProviderNode } from '../../api/client'
   import { nodeFormSeed } from './nodeFormSeed'
+  import NodeLimitsEditor from './NodeLimitsEditor.svelte'
 
   interface Props {
     isOpen: boolean
@@ -191,6 +192,10 @@
         {validation === 'success' ? 'Valid' : 'Invalid'}
       </Badge>
     {/if}
+    <!-- The node's capacity policy saves through its own endpoint (D8), so this
+         section carries its own button: the Save below is about name, prefix and
+         URL, and neither action may send the other's fields. -->
+    <NodeLimitsEditor nodeId={node.id} limits={node.limits ?? null} />
     <div class="flex gap-2">
       <Button onclick={handleSubmit} fullWidth disabled={saveDisabled}>
         {saving ? 'Saving...' : 'Save'}

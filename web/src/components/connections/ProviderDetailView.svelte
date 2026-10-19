@@ -69,6 +69,7 @@
   import EditConnectionModal, { type ConnectionUpdate } from './EditConnectionModal.svelte'
   import AddConnectionModal from './AddConnectionModal.svelte'
   import AddCustomModelModal from './AddCustomModelModal.svelte'
+  import NodeLimitsEditor from './NodeLimitsEditor.svelte'
   import ProviderHeaderOverridesModal from './ProviderHeaderOverridesModal.svelte'
   import EditCompatibleNodeModal from './EditCompatibleNodeModal.svelte'
   import FreebuffSessionBanner from './FreebuffSessionBanner.svelte'
@@ -2171,6 +2172,21 @@
     }
   }
 
+  /**
+   * A bulk paste writes rows the panel's own list has to show, so the reload is
+   * the same one a single add does — the modal cannot do it, because the model
+   * list belongs to this view.
+   */
+  async function handleBulkModelsSaved() {
+    try {
+      const modelsData = await fetchProviderModelsData(providerId, storageAlias)
+      customModels = modelsData.customModels
+      notifyCustomModelsChanged()
+    } catch (err) {
+      alert(`Models were saved but the list could not be reloaded: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+
   async function handleAddKeyConnection(payload: CreateConnectionPayload) {
     addConnectionError = ''
     try {
@@ -2837,6 +2853,15 @@
           </button>
         </div>
       </div>
+      <!-- The node's capacity policy, editable in place: an operator tuning a
+           limit is looking at the endpoint it belongs to, not at a dialog. -->
+      <NodeLimitsEditor
+        nodeId={selectedNode.id}
+        limits={selectedNode.limits ?? null}
+        onSaved={(saved) => {
+          selectedNode = { ...selectedNode!, limits: saved }
+        }}
+      />
     </div>
   {/if}
 
@@ -4557,6 +4582,7 @@
   providerAlias={storageAlias}
   onClose={() => (showAddCustomModelModal = false)}
   onSave={submitAddCustomModel}
+  onBulkSaved={handleBulkModelsSaved}
 />
 {/if}
 

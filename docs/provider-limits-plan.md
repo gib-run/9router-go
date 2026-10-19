@@ -225,21 +225,38 @@ Setiap PR menambah satu fragmen `.changes/<n>-<slug>.md` (bukan `CHANGELOG.md`, 
 
 ---
 
-## 7. Kontrak API
+## 7. Kontrak API (as-built)
+
+> Bagian ini **sudah disamakan dengan yang benar-benar dikirim PR4** (§6). Draf PR1 di sini memakai
+> `rpmLimit`/`tpmLimit`/… dan membungkus pemakaian sebagai `usage.{usedTokens,remainingTokens}` dengan
+> `status: ok|expired|quota_exhausted`; yang dikirim memakai nama kolom polos dan satu objek `limits`
+> datar. Deviasi itu dicatat di sini alih-alih dibiarkan, karena UI (PR5) membaca bentuk ini.
 
 **`PUT /api/provider-nodes/{id}/limits`**
 ```json
-{ "rpmLimit": 60, "tpmLimit": 90000, "concurrencyLimit": 4,
+{ "rpm": 60, "tpm": 90000, "concurrency": 4,
   "tokenQuota": 5000000, "queueTimeoutMs": 15000,
   "contractExpiresAt": "2027-01-31T00:00:00Z" }
 ```
 Field absen/`null` = tidak diubah; `0` = kosongkan; `contractExpiresAt: ""` = hapus expiry.
-Respons: `{ "node": { ...ProviderNode, "limits": {...}, "usage": { "usedTokens": 123456, "quotaResetAt": null } } }`.
-Validasi: semua angka ≥ 0 (negatif → 400 dengan nama field, pola `apikeys_policy.go:107`); `contractExpiresAt` harus RFC3339 UTC (400 bila tidak bisa di-parse).
+`contractExpiresAt` juga menerima bentuk tanggal `YYYY-MM-DD` (yang dikirim input `type="date"`) dan
+menormalkannya ke RFC3339 UTC tengah malam.
+Respons `200`: `{ "status": "ok", "id": "<node>", "limits": { ... } }` dengan `limits` = objek di bawah.
+Validasi: semua angka ≥ 0 (negatif → 400 menyebut nama field); timestamp tak terbaca → 400; id yang tidak menamai node → 404.
 
-**`POST /api/provider-nodes/{id}/quota/reset`** → `{ "success": true, "mark": 123456 }` (watermark id usageHistory).
+**`POST /api/provider-nodes/{id}/quota/reset`** → `200` `{ "status": "ok", "id": "<node>", "quotaResetId": 123456, "limits": {...} }`
+(`quotaResetId` = watermark id `usageHistory`; riwayat tidak dihapus).
 
-**`GET /api/provider-nodes`** — field baru: `limits` (rpm/tpm/concurrency/quota/queueTimeout), `contractExpiresAt`, `usage.usedTokens`, `usage.remainingTokens`, `status`: `ok` | `expired` | `quota_exhausted`.
+**`GET /api/provider-nodes`** — setiap node membawa objek `limits`:
+```json
+{ "rpm": 60, "tpm": 90000, "concurrency": 4, "tokenQuota": 5000000, "queueTimeoutMs": 15000,
+  "quotaResetId": 123456, "contractExpiresAt": "2027-01-31T00:00:00Z",
+  "usedTokens": 123456, "expired": false, "rpmUsedWindow": 3, "activeConcurrency": 1 }
+```
+`usedTokens` adalah angka yang dibandingkan gate kuota (jumlah lifetime sejak `quotaResetId`, termasuk carryover);
+`rpmUsedWindow`/`activeConcurrency` dibaca dari limiter proses yang sama dengan data plane, dan bernilai 0 saat
+limiter tidak terpasang. `remainingTokens` tidak dikirim karena `tokenQuota = 0` berarti tanpa plafon, sehingga
+"sisa" tak terdefinisi; UI menghitungnya sendiri bila perlu.
 
 **Envelope error** (samakan dengan limiter key; `attempts` memuat satu entri per kandidat yang dilewati karena limit):
 ```json
@@ -254,37 +271,58 @@ Tipe khusus: `provider_contract_expired`, `provider_token_quota_exhausted` (kedu
 
 ---
 
-## 8. UI
+## 8. UI (as-built)
 
-**Editor limit node** — `web/src/components/connections/EditCompatibleNodeModal.svelte`
-(paritas juga di `AddCompatibleNodeModal.svelte`; panel node di `ProviderDetailView.svelte` menampilkan ringkasannya).
-Form mengikuti tata letak `ApiKeyPolicyModal.svelte`: enam input bernomor, tiap field menyertakan hint "0 = tidak dibatasi",
-tanggal kontrak pakai input `type="date"` (dikonversi ke RFC3339 UTC akhir hari), dan blok read-only
-"pemakaian" (token terpakai / kuota, RPM terpakai di window berjalan, concurrency aktif) bila data dari `GET /api/provider-nodes` ada.
-Tombol simpan hanya memanggil endpoint limits (D8) — tidak mengirim `name`/`prefix`.
+**Editor limit node** — `web/src/components/connections/NodeLimitsEditor.svelte` (baru), dipasang di dua tempat:
+panel node `ProviderDetailView.svelte` (di bawah tombol Add API Key / Edit / Delete) dan
+`EditCompatibleNodeModal.svelte`. Form mengikuti tata letak `ApiKeyPolicyModal.svelte`: lima input bernomor
+(rpm, tpm, concurrency, queue wait, kuota lifetime) + satu input `type="date"` untuk akhir kontrak, tiap field
+menyertakan hint `0 = tidak dibatasi`, dan blok read-only "Usage" (token terpakai / kuota, RPM di window berjalan,
+concurrency aktif, plus peringatan bila `expired`) bila `limits` dari `GET /api/provider-nodes` ada.
+Tombol **Save limits** hanya memanggil `PUT .../limits` (D8) — tidak mengirim `name`/`prefix` — dan tombol
+**Restart token count** memanggil `POST .../quota/reset`.
 
-**Bulk add models** — `AddCustomModelModal.svelte` mendapat mode `single` | `bulk`, meniru `AddConnectionModal.svelte`.
+Tanggal kontrak dikirim sebagai **akhir hari UTC** (`YYYY-MM-DDT23:59:59Z`), bukan tengah malam: operator yang memilih
+2027-01-31 berarti node hidup sepanjang hari itu, sedangkan tengah malam justru mematikannya sejak awal hari yang ia
+pilih (di zona waktu positif: petang sebelumnya). Server menerima RFC3339 apa adanya, jadi normalisasi tanggal
+`YYYY-MM-DD` di server hanya menjadi jaring pengaman untuk klien lain.
 
-`web/src/lib/bulk-models.ts` (baru, murni, ada test):
+**Deviasi dari rencana (dicatat):** paritas editor di `AddCompatibleNodeModal.svelte` **tidak** dibuat. Node belum ada
+saat modal itu dibuka, sedangkan endpoint limit butuh id node (D8); menaruh field di sana berarti field yang tidak bisa
+disimpan sampai node dibuat. Setelah dibuat, panel node langsung menampilkan editor yang sama, jadi operator tidak
+kehilangan langkah — tapi ini keputusan yang perlu Cak Helmi setujui bila paritas tetap diinginkan (jalurnya:
+`onSubmit` mengembalikan id node baru, lalu editor dipanggil sekali setelah create).
+
+**Bulk add models** — `AddCustomModelModal.svelte` mendapat mode `single` | `bulk` lewat dua `Button` (meniru
+`AddConnectionModal.svelte`). Capabilities + token limits tetap di luar kedua mode sehingga berlaku untuk **semua** ID
+di batch (D10), dan footer berubah menjadi `Add N Models`.
+
+`web/src/lib/bulk-models.ts` (baru, murni, 18 test table-driven di `bulk-models.test.ts`):
 ```ts
-export interface BulkModelInput { raw: string; alias?: string }
 export interface BulkModelsResult { ids: string[]; duplicates: string[]; invalid: string[] }
-
-/** Pisah pada spasi, koma, titik-koma, dan newline; buang kosong; dedupe; buang prefiks "<alias>/". */
 export function parseModelIds(input: string, alias?: string): BulkModelsResult
+export function summarizeBulkModels(plan: BulkModelsResult, added: number): string
 ```
-Aturan parser (semuanya diuji table-driven):
-- pemisah: `/[\s,;]+/` — spasi, koma, titik-koma, newline (spesifikasi minta space/comma/newline; titik-koma ikut karena gratis dan aman);
+Aturan parser (semuanya diuji):
+- pemisah: `/[\s,;]+/` — spasi, koma, titik-koma, newline;
 - trim tiap ID, buang yang kosong;
-- buang prefiks `"<alias>/"` (`stripAlias()` yang sudah ada — konsisten dengan jalur single);
-- dedupe **mempertahankan urutan** (first-wins), ID duplikat dilaporkan di `duplicates` agar operator tahu itu bukan bug;
-- tolak ID berisi karakter yang sudah ditolak jalur single (validasi server tetap otoritatif; klien hanya memberi umpan balik cepat).
+- buang prefiks `"<alias>/"` sehingga paste `nara/glm-5.3` dan `glm-5.3` menghasilkan baris yang sama;
+- dedupe **mempertahankan urutan** (first-wins), duplikat dilaporkan di `duplicates`;
+- ID dengan `/`, `|`, kutip, atau kurung sudut dilaporkan `invalid` (bukan dibuang diam-diam): karakter itu membuat
+  alamat `<provider>/<id>` ambigu. Server tetap otoritatif.
 
-Hasil tampil seperti `bulkResult` di `AddConnectionModal`: `"8 ditambahkan, 2 dilewati"` + daftar alasan per ID
-(`sudah ada`, `tidak valid`). Tidak ada penambahan parsial: satu request (D9).
+Hasil tampil seperti `bulkResult` di `AddConnectionModal`: `summarizeBulkModels(plan, added)` → `"2 added, 1 duplicate"`
+plus daftar `id — alasan` per baris yang ditolak server (`already exists on this provider`, `COMBO_NAME_CONFLICT`, …).
+Satu request untuk seluruh paste (D9).
 
-**Klien** (`web/src/api/client.ts`): `setProviderNodeLimits(id, payload)`, `resetProviderNodeQuota(id)`,
-`saveCustomModelsBulk({ providerAlias, models: [{id, vision, reasoning, contextWindow, maxOutput}] })`.
+**Server (D9)** — `POST /api/models/custom` menerima dua bentuk: objek satu model (bentuk lama, tetap jalan) dan
+`{providerAlias, models: [...]}`. Batch menulis lewat `Repo.SetKVMany` dalam **satu transaksi**, dan membalas
+`{status, added: [id], skipped: [{id, reason, code}]}`. Aturan nama memakai satu definisi
+(`DashboardHandler.nameConflict`) yang juga dipakai jalur single, jadi baris yang ditolak batch akan ditolak juga bila
+disimpan satu per satu.
+
+**Klien** (`web/src/api/client.ts`): `ProviderNode.limits`, `setProviderNodeLimits(id, patch)`,
+`resetProviderNodeQuota(id)`, `saveCustomModelsBulk({ providerAlias, models })`.
 
 ---
 

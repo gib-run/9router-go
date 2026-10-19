@@ -196,5 +196,53 @@ resolves to the node, and the `usageHistory` fixture in
 `provider_nodes_update_test.go` moved to the production column set (it was
 missing `promptTokens`/`completionTokens`, so the node list answered 500 rather
 than the test failing on the behaviour it was about).
+
+### feat(dashboard): edit a node's capacity limits in place, and add models by the paste
+
+The policy the data plane enforces is now editable where the operator sees it: a
+`NodeLimitsEditor` panel on the provider page (and inside the node's edit dialog)
+with the five numeric ceilings, the contract end date, a read-only usage block
+(tokens against the lifetime quota, requests in the running window, requests in
+flight) and a button that restarts the token count. It saves through the limits
+endpoint alone, because the node's own update requires name and prefix on every
+request — routing a limits edit through it would turn an empty field into a 400
+for the whole node, and a limits save must never be able to rename anything.
+
+The contract date is sent as the **end** of the chosen day in UTC
+(`YYYY-MM-DDT23:59:59Z`). Midnight is the start of the day the operator picked,
+which in a positive-offset timezone is the previous evening — a paying node taken
+offline a day early.
+
+`AddCustomModelModal` gained a Single / Bulk Add switch. The bulk mode takes one
+paste — spaces, commas, semicolons or newlines — strips a `<alias>/` prefix so
+`nara/glm-5.3` and `glm-5.3` land the same row, dedupes keeping paste order, and
+reports ids it will not send instead of dropping them: a slash or a pipe would be
+read back as an address rather than part of the id. Capabilities and token limits
+apply to every id in the paste, and the footer says how many it is about to add.
+
+The server side is one request for the whole paste (D9): `POST /api/models/custom`
+accepts either the original single-model body or `{providerAlias, models: [...]}`,
+writes the accepted entries in one transaction (`Repo.SetKVMany`, so "8 added"
+cannot become three rows plus a crash), and answers with the ids it stored and one
+`{id, reason, code}` per line it did not — `already exists on this provider`,
+`repeated in this batch`, or the name-collision code a single save would have
+answered 409 with. That last part is why `guardNameCollision` was split: one
+`nameConflict` decision now serves both callers, so a batch cannot accept a name
+the single-save path refuses.
+
+Verified in the running dashboard, not only in the build: the limits panel renders
+on a real node page, a save round-trips through `PUT .../limits` and the listing
+reports the new value, and the node was returned to its original all-zero policy
+afterwards; the bulk mode's counters react to a paste (`2 to add · 1 repeated ·
+1 invalid`) and a real save answered `✓ 2 added, 1 duplicate` with both rows
+stored under the right alias, which were then deleted again. Gates: `bun run
+build`, `bun run ratchet:svelte` (0 unresolved, 81 errors = baseline), `bunx
+oxlint --deny-warnings`, 18 parser cases under `bun test`, plus the Go suite and
+the integration suite.
+
+One deviation from the plan, recorded rather than hidden: the editor is **not** in
+`AddCompatibleNodeModal`. The node does not exist while that dialog is open and the
+limits endpoint needs its id, so the fields there could not be saved until after
+creation — where the node page already shows the same editor.
 Rename this file to `<pr-number>-provider-node-limits-data.md` when the PR is
 opened, so the fragment orders correctly in the dashboard changelog.

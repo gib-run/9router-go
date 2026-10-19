@@ -51,6 +51,14 @@ func (h *DashboardHandler) HandleSaveCustomModel(w http.ResponseWriter, r *http.
 		return
 	}
 
+	// The array form is one request for a whole pasted list (D9). A client that
+	// fired one call per id has nowhere to report the ids it could not save, and a
+	// failure halfway leaves rows behind that the operator never sees.
+	if _, batch := data["models"]; batch {
+		h.saveCustomModelsBatch(w, r, data)
+		return
+	}
+
 	var key string
 	if k, ok := data["key"].(string); ok && k != "" {
 		key = k
