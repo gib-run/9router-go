@@ -794,9 +794,9 @@
            because it is one of these preferences rather than a section of its
            own. The catalog and the formatting rules live in lib/currency.ts. -->
       <div class="space-y-3 border-t border-border pt-3">
-        <p class="text-[11px] text-text-subtle">Currency</p>
+        <p class="text-xs font-semibold text-text-main">Currency</p>
 
-        <p class="text-xs text-text-muted leading-relaxed">
+        <p class="text-[11px] text-text-subtle leading-relaxed">
           Every cost is measured in USD and shown here in the currency you pick. The rates are yours
           to keep: edit them, or refresh them from a public provider.
         </p>
