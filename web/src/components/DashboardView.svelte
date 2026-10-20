@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { Activity, Coins, Cpu, HardDrive, KeyRound, Layers3, Network, Server, Users } from 'lucide-svelte'
+  import { Activity, Coins, Cpu, HardDrive, KeyRound, Layers3, Network, Server } from 'lucide-svelte'
   import { api, type APIKey, type Combo, type ProviderConnection, type SystemMetrics } from '../api/client'
   import { language } from '../lib/locale.svelte'
 
