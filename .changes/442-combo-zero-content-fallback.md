@@ -15,10 +15,16 @@ error: the combo advances to the next member directly, the account keeps its
 rotation, the attempt is not counted as an upstream error, and it is not billed
 as a served turn.
 
-The last member still answers with its own body, and a request that is not a
-combo is unchanged. The streaming path is untouched: once bytes are on the wire
-the response is committed and no fallback is possible there, which is why
-upstream applies the check to JSON responses only.
+The last member still answers with its own body, routed through the normal
+response path so the reply is translated into the client's wire shape
+(Claude/Responses) and recorded as a normal served turn in usageHistory with
+requestDetail status="success". A request that is not a combo is unchanged.
+The detector uses `jsontext.Value` to tolerate non-string `reasoning_content`
+and `finish_reason` without failing choice decode, prefers `message` over
+`delta`, and treats empty `function_call` objects as truthy tool calls matching
+upstream. The streaming path is untouched: once bytes are on the wire the
+response is committed and no fallback is possible there, which is why upstream
+applies the check to JSON responses only.
 
 Verified with a table-driven unit test over both wire shapes and an
 integration test that boots the real router with a two-member combo whose first

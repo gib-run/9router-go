@@ -89,6 +89,25 @@ func TestComboSingleMemberZeroContentServedVerbatim(t *testing.T) {
 	if !strings.Contains(string(res.Body), "in_progress") {
 		t.Errorf("response body = %q, want original zero-content body", string(res.Body))
 	}
+
+	rows, err := env.Repo.GetRecentUsageHistory(10)
+	if err != nil {
+		t.Fatalf("read usage history: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Errorf("usageHistory rows = %d, want exactly 1 for the served turn", len(rows))
+	}
+
+	details, total, err := env.Repo.GetRequestDetailsPaged(10, 0)
+	if err != nil {
+		t.Fatalf("read request details: %v", err)
+	}
+	if total == 0 || len(details) == 0 {
+		t.Fatal("requestDetails returned no records")
+	}
+	if details[0].Status != "success" {
+		t.Errorf("requestDetail[0].Status = %q, want success", details[0].Status)
+	}
 }
 
 // TestMessagesComboFallsBackOnZeroContentResponse verifies that combo fallback
@@ -115,5 +134,124 @@ func TestMessagesComboFallsBackOnZeroContentResponse(t *testing.T) {
 	}
 	if !strings.Contains(string(res.Body), "upstream reply") {
 		t.Errorf("response body = %q, want working upstream reply", string(res.Body))
+	}
+}
+
+// TestComboFallsBackOnNumericFinishReason verifies that a combo advances when
+// the first member answers with a numeric finish_reason.
+func TestComboFallsBackOnNumericFinishReason(t *testing.T) {
+	env := newEnv(t)
+
+	numericFinishJSON := `{
+	  "id": "chatcmpl-num-finish",
+	  "object": "chat.completion",
+	  "created": 1700000000,
+	  "model": "deepseek-chat",
+	  "choices": [
+	    {"index": 0, "message": {"role": "assistant", "content": ""}, "finish_reason": 5}
+	  ]
+	}`
+
+	zeroUpstream := env.NewUpstream(t, JSONResponder(http.StatusOK, numericFinishJSON))
+	workingUpstream := env.NewUpstream(t, chatCompletionResponder())
+
+	env.AddConnection(t, "conn-num-zero", "deepseek", "Zero Content Account", zeroUpstream, "sk-zero")
+	env.AddConnection(t, "conn-num-working", "groq", "Working Account", workingUpstream, "sk-working")
+	env.AddCombo(t, "combo-num-zero", "resilient-num-zero", []string{"deepseek/deepseek-chat", "groq/llama-3.3-70b-versatile"})
+
+	res := env.Post(t, "/v1/chat/completions", ChatBody("resilient-num-zero", false))
+	if res.Status != http.StatusOK {
+		t.Fatalf("POST /v1/chat/completions = %d, want 200 (body: %s)", res.Status, truncate(res.Body))
+	}
+	if got := zeroUpstream.Count(); got != 1 {
+		t.Errorf("zero-content upstream received %d requests, want 1", got)
+	}
+	if got := workingUpstream.Count(); got != 1 {
+		t.Errorf("working upstream received %d requests, want 1", got)
+	}
+	if !strings.Contains(string(res.Body), "upstream reply") {
+		t.Errorf("response body = %q, want working upstream reply", string(res.Body))
+	}
+}
+
+// TestComboFallsBackOnArrayReasoningContent verifies that a combo advances when
+// the first member answers with reasoning_content as an array.
+func TestComboFallsBackOnArrayReasoningContent(t *testing.T) {
+	env := newEnv(t)
+
+	arrayReasoningJSON := `{
+	  "id": "chatcmpl-arr-reason",
+	  "object": "chat.completion",
+	  "created": 1700000000,
+	  "model": "deepseek-chat",
+	  "choices": [
+	    {"index": 0, "message": {"role": "assistant", "content": "", "reasoning_content": [{"type":"text","text":"thinking"}]}, "finish_reason": "in_progress"}
+	  ]
+	}`
+
+	zeroUpstream := env.NewUpstream(t, JSONResponder(http.StatusOK, arrayReasoningJSON))
+	workingUpstream := env.NewUpstream(t, chatCompletionResponder())
+
+	env.AddConnection(t, "conn-arr-zero", "deepseek", "Zero Content Account", zeroUpstream, "sk-zero")
+	env.AddConnection(t, "conn-arr-working", "groq", "Working Account", workingUpstream, "sk-working")
+	env.AddCombo(t, "combo-arr-zero", "resilient-arr-zero", []string{"deepseek/deepseek-chat", "groq/llama-3.3-70b-versatile"})
+
+	res := env.Post(t, "/v1/chat/completions", ChatBody("resilient-arr-zero", false))
+	if res.Status != http.StatusOK {
+		t.Fatalf("POST /v1/chat/completions = %d, want 200 (body: %s)", res.Status, truncate(res.Body))
+	}
+	if got := zeroUpstream.Count(); got != 1 {
+		t.Errorf("zero-content upstream received %d requests, want 1", got)
+	}
+	if got := workingUpstream.Count(); got != 1 {
+		t.Errorf("working upstream received %d requests, want 1", got)
+	}
+	if !strings.Contains(string(res.Body), "upstream reply") {
+		t.Errorf("response body = %q, want working upstream reply", string(res.Body))
+	}
+}
+
+// TestMessagesComboLastMemberZeroContentInClaudeShape verifies that when the
+// last member of a combo returns zero content on /v1/messages, the answer is
+// served in the client's wire shape (Anthropic messages), is recorded in usageHistory,
+// and has requestDetail status = "success".
+func TestMessagesComboLastMemberZeroContentInClaudeShape(t *testing.T) {
+	env := newEnv(t)
+
+	zeroUpstream := env.NewUpstream(t, JSONResponder(http.StatusOK, zeroContentJSON))
+	env.AddConnection(t, "conn-last-claude", "deepseek", "Last Claude Account", zeroUpstream, "sk-last-claude")
+	env.AddCombo(t, "combo-last-claude", "solo-claude", []string{"deepseek/deepseek-chat"})
+
+	res := env.Post(t, "/v1/messages", claudeMessagesBody("solo-claude", false))
+	if res.Status != http.StatusOK {
+		t.Fatalf("POST /v1/messages = %d, want 200 (body: %s)", res.Status, truncate(res.Body))
+	}
+
+	bodyStr := string(res.Body)
+	if !strings.Contains(bodyStr, `"type":"message"`) && !strings.Contains(bodyStr, `"type": "message"`) {
+		t.Errorf("response body = %q, want Claude wire shape with type: message", bodyStr)
+	}
+	if strings.Contains(bodyStr, `"choices"`) || strings.Contains(bodyStr, `"chat.completion"`) {
+		t.Errorf("response body = %q, must not contain OpenAI choices or chat.completion", bodyStr)
+	}
+
+	// Verify usage and status recording (Findings 2 & 3).
+	rows, err := env.Repo.GetRecentUsageHistory(10)
+	if err != nil {
+		t.Fatalf("read usage history: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Errorf("usageHistory rows = %d, want exactly 1 for the served turn", len(rows))
+	}
+
+	details, total, err := env.Repo.GetRequestDetailsPaged(10, 0)
+	if err != nil {
+		t.Fatalf("read request details: %v", err)
+	}
+	if total == 0 || len(details) == 0 {
+		t.Fatal("requestDetails returned no records")
+	}
+	if details[0].Status != "success" {
+		t.Errorf("requestDetail[0].Status = %q, want success", details[0].Status)
 	}
 }

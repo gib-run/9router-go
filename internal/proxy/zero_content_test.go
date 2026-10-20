@@ -91,6 +91,26 @@ func TestIsZeroContentResponse(t *testing.T) {
 			want: true,
 		},
 		{
+			name: "array reasoning_content counts as no reasoning (zero content)",
+			body: `{"choices":[{"message":{"content":"","reasoning_content":[{"type":"text","text":"thinking"}]},"finish_reason":"in_progress"}]}`,
+			want: true,
+		},
+		{
+			name: "numeric finish_reason is not normal finish (zero content)",
+			body: `{"choices":[{"message":{"content":""},"finish_reason":5}]}`,
+			want: true,
+		},
+		{
+			name: "empty object function_call counts as tool call (not zero content)",
+			body: `{"choices":[{"message":{"content":"","function_call":{}},"finish_reason":"in_progress"}]}`,
+			want: false,
+		},
+		{
+			name: "message preferred over delta when both present (zero content)",
+			body: `{"choices":[{"message":{"content":""},"delta":{"content":"text in delta"},"finish_reason":"in_progress"}]}`,
+			want: true,
+		},
+		{
 			name: "a non-JSON body",
 			body: `upstream error 500`,
 			want: false,

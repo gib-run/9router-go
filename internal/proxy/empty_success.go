@@ -261,19 +261,32 @@ func (e *ZeroContentError) Error() string {
 
 type zeroContentProbeKey struct{}
 
-// WithZeroContentProbe marks ctx so the response path intercepts a 200
-// response with zero usable content instead of writing it to the client.
-func WithZeroContentProbe(ctx context.Context) context.Context {
-	return context.WithValue(ctx, zeroContentProbeKey{}, true)
+// WithZeroContentProbe marks ctx with whether the zero-content detector should
+// fall back to the next combo member. When canFallback is false (e.g. the last
+// member of a combo), a zero-content response is served normally rather than
+// intercepted as an error.
+func WithZeroContentProbe(ctx context.Context, canFallback bool) context.Context {
+	return context.WithValue(ctx, zeroContentProbeKey{}, canFallback)
 }
 
-// HasZeroContentProbe reports whether ctx has the zero-content probe armed.
-func HasZeroContentProbe(ctx context.Context) bool {
+// ZeroContentProbe reports whether the probe is armed, and whether fallback is
+// requested.
+func ZeroContentProbe(ctx context.Context) (armed bool, canFallback bool) {
 	if ctx == nil {
-		return false
+		return false, false
 	}
 	v, ok := ctx.Value(zeroContentProbeKey{}).(bool)
-	return ok && v
+	if !ok {
+		return false, false
+	}
+	return true, v
+}
+
+// HasZeroContentProbe reports whether ctx has the zero-content probe armed and
+// can fall back.
+func HasZeroContentProbe(ctx context.Context) bool {
+	armed, canFallback := ZeroContentProbe(ctx)
+	return armed && canFallback
 }
 
 // IsZeroContentResponse reports whether a 2xx JSON body carries no usable
@@ -299,32 +312,42 @@ func IsZeroContentResponse(body []byte) bool {
 		t := bytes.TrimSpace(probe.Choices)
 		if len(t) > 0 && t[0] == '[' {
 			var choices []struct {
-				Message struct {
-					Content          jsontext.Value `json:"content"`
-					ToolCalls        jsontext.Value `json:"tool_calls"`
-					FunctionCall     jsontext.Value `json:"function_call"`
-					ReasoningContent string         `json:"reasoning_content"`
-				} `json:"message"`
-				Delta struct {
-					Content          jsontext.Value `json:"content"`
-					ToolCalls        jsontext.Value `json:"tool_calls"`
-					FunctionCall     jsontext.Value `json:"function_call"`
-					ReasoningContent string         `json:"reasoning_content"`
-				} `json:"delta"`
-				FinishReason string `json:"finish_reason"`
+				Message      jsontext.Value `json:"message"`
+				Delta        jsontext.Value `json:"delta"`
+				FinishReason jsontext.Value `json:"finish_reason"`
 			}
 			if err := json.Unmarshal(t, &choices, handlerutil.UpstreamBody); err == nil {
 				if len(choices) == 0 {
 					return true
 				}
 				c := choices[0]
-				hasContent := probeHasContent(c.Message.Content) || probeHasContent(c.Delta.Content)
-				hasToolCalls := probeHasToolCalls(c.Message.ToolCalls, c.Message.FunctionCall) ||
-					probeHasToolCalls(c.Delta.ToolCalls, c.Delta.FunctionCall)
-				hasReasoning := strings.TrimSpace(c.Message.ReasoningContent) != "" ||
-					strings.TrimSpace(c.Delta.ReasoningContent) != ""
+				// upstream reads message only when present (Boolean(choice.message) in JS);
+				// only falls back to delta when message is absent/null.
+				msgRaw := c.Message
+				trimmedMsg := bytes.TrimSpace(msgRaw)
+				if len(trimmedMsg) == 0 || bytes.Equal(trimmedMsg, []byte("null")) {
+					msgRaw = c.Delta
+				}
 
-				finish := c.FinishReason
+				var msg struct {
+					Content          jsontext.Value `json:"content"`
+					ToolCalls        jsontext.Value `json:"tool_calls"`
+					FunctionCall     jsontext.Value `json:"function_call"`
+					ReasoningContent jsontext.Value `json:"reasoning_content"`
+				}
+				if len(bytes.TrimSpace(msgRaw)) > 0 {
+					_ = json.Unmarshal(msgRaw, &msg, handlerutil.UpstreamBody)
+				}
+
+				hasContent := probeHasContent(msg.Content)
+				hasToolCalls := probeHasToolCalls(msg.ToolCalls, msg.FunctionCall)
+				hasReasoning := probeHasReasoning(msg.ReasoningContent)
+
+				var finish string
+				trimmedFR := bytes.TrimSpace(c.FinishReason)
+				if len(trimmedFR) > 0 && trimmedFR[0] == '"' {
+					_ = json.Unmarshal(trimmedFR, &finish, handlerutil.UpstreamBody)
+				}
 				isNormalFinish := finish == "stop" || finish == "length" || finish == "tool_calls" || finish == "function_call"
 
 				if !hasContent && !hasToolCalls && !hasReasoning && (!isNormalFinish || finish == "in_progress" || finish == "incomplete") {
@@ -361,6 +384,18 @@ func IsZeroContentResponse(body []byte) bool {
 	return false
 }
 
+func probeHasReasoning(raw jsontext.Value) bool {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || trimmed[0] != '"' {
+		return false
+	}
+	var s string
+	if err := json.Unmarshal(trimmed, &s, handlerutil.UpstreamBody); err == nil {
+		return strings.TrimSpace(s) != ""
+	}
+	return false
+}
+
 func probeHasContent(raw jsontext.Value) bool {
 	trimmed := bytes.TrimSpace(raw)
 	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
@@ -390,7 +425,7 @@ func probeHasToolCalls(toolCalls, functionCall jsontext.Value) bool {
 		}
 	}
 	trimmedFC := bytes.TrimSpace(functionCall)
-	if len(trimmedFC) > 0 && !bytes.Equal(trimmedFC, []byte("null")) && !bytes.Equal(trimmedFC, []byte("{}")) {
+	if len(trimmedFC) > 0 && !bytes.Equal(trimmedFC, []byte("null")) {
 		return true
 	}
 	return false

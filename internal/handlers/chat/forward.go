@@ -380,15 +380,12 @@ func (h *ChatHandler) handleJSONResponse(ctx context.Context, w http.ResponseWri
 		body = folded
 	}
 
-	if internalproxy.HasZeroContentProbe(ctx) && internalproxy.IsZeroContentResponse(body) {
-		return &internalproxy.ZeroContentError{Body: body}
-	}
-
-	// A 200 that carries no completion (blank body, HTML error page, a
-	// `{"error": ...}` envelope, a choice with empty content) reads to every
-	// layer above as a served turn, which both ends combo fallback and
-	// clears the account cooldown. Report it as the 502 it is.
-	if err := internalproxy.EmptyUpstreamError(body); err != nil {
+	if armed, canFallback := internalproxy.ZeroContentProbe(ctx); armed && internalproxy.IsZeroContentResponse(body) {
+		if canFallback {
+			return &internalproxy.ZeroContentError{Body: body}
+		}
+		// The last member of a combo serves its zero-content response normally (FR3).
+	} else if err := internalproxy.EmptyUpstreamError(body); err != nil {
 		return err
 	}
 

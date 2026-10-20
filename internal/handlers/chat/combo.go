@@ -610,7 +610,7 @@ func (h *ChatHandler) handleComboFallback(ctx context.Context, w http.ResponseWr
 				var fwdErr error
 				fwdCtx := ctx
 				if !isStream {
-					fwdCtx = internalproxy.WithZeroContentProbe(ctx)
+					fwdCtx = internalproxy.WithZeroContentProbe(ctx, !isLastModel)
 				}
 				if modelInfo.Provider == "mimo-free" {
 					comboMetrics := &streamMetrics{}
@@ -629,18 +629,9 @@ func (h *ChatHandler) handleComboFallback(ctx context.Context, w http.ResponseWr
 				if fwdErr != nil {
 					var zcErr *internalproxy.ZeroContentError
 					if errors.As(fwdErr, &zcErr) {
-						if !isLastModel {
-							log.Warn("combo", "zero usable content, falling back to next model", "provider", modelInfo.Provider, "model", modelInfo.Model)
-							lastErr = &upstreamError{StatusCode: http.StatusOK, Body: zcErr.Body}
-							break
-						}
-						// The last member's zero-content answer is served as a 200 (FR3).
-						cw.Header().Set("Content-Type", "application/json")
-						cw.WriteHeader(http.StatusOK)
-						if _, err := cw.Write(zcErr.Body); err != nil {
-							log.Warn("combo", "client write failed", "provider", modelInfo.Provider, "model", modelInfo.Model, "error", err)
-						}
-						return
+						log.Warn("combo", "zero usable content, falling back to next model", "provider", modelInfo.Provider, "model", modelInfo.Model)
+						lastErr = &upstreamError{StatusCode: http.StatusOK, Body: zcErr.Body}
+						break
 					}
 					if ctx.Err() != nil {
 						lastErr = &upstreamError{StatusCode: StatusClientClosedRequest, Body: []byte(clientClosedBody)}
@@ -857,7 +848,7 @@ func (h *ChatHandler) handleMessagesComboFallback(ctx context.Context, w http.Re
 
 				fwdCtx := ctx
 				if !isStream {
-					fwdCtx = internalproxy.WithZeroContentProbe(ctx)
+					fwdCtx = internalproxy.WithZeroContentProbe(ctx, !isLastModel)
 				}
 				fwdErr := h.tryForwardWithConnection(forwardRequestParams{
 					Ctx: fwdCtx, W: cw, Provider: modelInfo.Provider, Model: modelInfo.Model,
@@ -871,18 +862,9 @@ func (h *ChatHandler) handleMessagesComboFallback(ctx context.Context, w http.Re
 				if fwdErr != nil {
 					var zcErr *internalproxy.ZeroContentError
 					if errors.As(fwdErr, &zcErr) {
-						if !isLastModel {
-							log.Warn("combo", "zero usable content, falling back to next model", "provider", modelInfo.Provider, "model", modelInfo.Model)
-							lastErr = &upstreamError{StatusCode: http.StatusOK, Body: zcErr.Body}
-							break
-						}
-						// The last member's zero-content answer is served as a 200 (FR3).
-						cw.Header().Set("Content-Type", "application/json")
-						cw.WriteHeader(http.StatusOK)
-						if _, err := cw.Write(zcErr.Body); err != nil {
-							log.Warn("combo", "client write failed", "provider", modelInfo.Provider, "model", modelInfo.Model, "error", err)
-						}
-						return
+						log.Warn("combo", "zero usable content, falling back to next model", "provider", modelInfo.Provider, "model", modelInfo.Model)
+						lastErr = &upstreamError{StatusCode: http.StatusOK, Body: zcErr.Body}
+						break
 					}
 					if ctx.Err() != nil {
 						lastErr = &upstreamError{StatusCode: StatusClientClosedRequest, Body: []byte(clientClosedBody)}
