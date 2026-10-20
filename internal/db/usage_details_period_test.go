@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"reflect"
 	"testing"
 )
@@ -72,7 +73,7 @@ func TestGetRequestDetailsPagedWindowsByTimestamp(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			rows, total, err := NewRepo(database).GetRequestDetailsPaged(tt.limit, 0, tt.since)
+			rows, total, err := NewRepo(database).GetRequestDetailsPaged(context.Background(), tt.limit, 0, tt.since)
 			if err != nil {
 				t.Fatalf("GetRequestDetailsPaged(limit=%d, since=%q) error = %v", tt.limit, tt.since, err)
 			}

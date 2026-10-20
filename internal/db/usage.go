@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"fmt"
 	"time"
 )
@@ -416,7 +417,7 @@ const requestDetailCount = `SELECT COUNT(*) FROM requestDetails %s`
 // does carry rows is the same "zero that means broken" class this reader's
 // siblings were fixed for, and it reaches the caller looking like a coherent
 // empty page.
-func (r *Repo) GetRequestDetailsPaged(limit, offset int, since string) ([]RequestDetailListRow, int, error) {
+func (r *Repo) GetRequestDetailsPaged(ctx context.Context, limit, offset int, since string) ([]RequestDetailListRow, int, error) {
 	where := ""
 	var args []any
 	if since != "" {
@@ -424,11 +425,11 @@ func (r *Repo) GetRequestDetailsPaged(limit, offset int, since string) ([]Reques
 		args = append(args, since)
 	}
 	var total int
-	if err := r.db.QueryRow(fmt.Sprintf(requestDetailCount, where), args...).Scan(&total); err != nil {
+	if err := r.db.QueryRowContext(ctx, fmt.Sprintf(requestDetailCount, where), args...).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("count requestDetails: %w", err)
 	}
 
-	rows, err := r.db.Query(fmt.Sprintf(requestDetailListSelect, where), append(args, limit, offset)...)
+	rows, err := r.db.QueryContext(ctx, fmt.Sprintf(requestDetailListSelect, where), append(args, limit, offset)...)
 	if err != nil {
 		return nil, total, fmt.Errorf("query requestDetails paged: %w", err)
 	}

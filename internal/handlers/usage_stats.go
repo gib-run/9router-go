@@ -523,7 +523,7 @@ func HandleRequestDetails(repo *db.Repo) http.HandlerFunc {
 			}
 		}
 
-		rows, total, err := repo.GetRequestDetailsPaged(limit, offset, detailsSince(r.URL.Query().Get("period"), time.Now()))
+		rows, total, err := repo.GetRequestDetailsPaged(r.Context(), limit, offset, detailsSince(r.URL.Query().Get("period"), time.Now()))
 		if err != nil {
 			handlerutil.WriteJSONError(w, http.StatusInternalServerError, err.Error())
 			return
