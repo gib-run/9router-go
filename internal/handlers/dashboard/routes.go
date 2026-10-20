@@ -102,6 +102,7 @@ func RegisterRoutes(r chi.Router, h *DashboardHandler) {
 		r.Get("/plans/{id}/keys", h.HandlePlanKeys)
 
 		// F-5 Credential vault: status and master-key rotation.
+		r.Get("/system/metrics", h.HandleSystemMetrics)
 		r.Get("/vault/status", h.HandleGetVaultStatus)
 		r.Post("/vault/rotate", h.HandleRotateVault)
 		r.Get("/metrics", observ.Handler().ServeHTTP)

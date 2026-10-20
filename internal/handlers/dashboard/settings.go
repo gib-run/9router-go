@@ -103,6 +103,30 @@ func (h *DashboardHandler) HandleUpdateSettings(w http.ResponseWriter, r *http.R
 			return
 		}
 	}
+	if value, ok := updates["appName"]; ok {
+		name, valid := value.(string)
+		if !valid || len([]rune(strings.TrimSpace(name))) > 60 {
+			handlerutil.WriteJSONError(w, http.StatusBadRequest, "appName must be text up to 60 characters")
+			return
+		}
+		updates["appName"] = strings.TrimSpace(name)
+	}
+	if value, ok := updates["appLogoUrl"]; ok {
+		logo, valid := value.(string)
+		logo = strings.TrimSpace(logo)
+		if !valid || len(logo) > 500 {
+			handlerutil.WriteJSONError(w, http.StatusBadRequest, "appLogoUrl must be text up to 500 characters")
+			return
+		}
+		if logo != "" {
+			parsed, err := url.Parse(logo)
+			if err != nil || (parsed.Scheme != "https" && !(parsed.Scheme == "" && strings.HasPrefix(logo, "/") && !strings.HasPrefix(logo, "//"))) {
+				handlerutil.WriteJSONError(w, http.StatusBadRequest, "appLogoUrl must be an HTTPS URL or a local absolute path")
+				return
+			}
+		}
+		updates["appLogoUrl"] = logo
+	}
 
 	// Feature Visibility stores sidebar ids, so the payload is normalized here:
 	// the sidebar must never receive an id it cannot address (navvisibility.go).

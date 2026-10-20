@@ -194,6 +194,8 @@ export interface ProviderStrategyConfig {
 }
 
 export interface Settings {
+  appName?: string
+  appLogoUrl?: string
   requireApiKey?: boolean
   tunnelDashboardAccess?: boolean
   rtkEnabled?: boolean
@@ -272,6 +274,18 @@ export interface Settings {
     updatedAt?: string
   }
   [key: string]: unknown
+}
+
+export interface SystemMetrics {
+  processCpuPercent: number
+  processMemoryBytes: number
+  processMemoryPercent: number
+  systemCpuPercent: number
+  systemMemoryBytes: number
+  systemMemoryUsedBytes: number
+  systemMemoryPercent: number
+  goroutines: number
+  sampledAt: string
 }
 
 /**
@@ -1642,6 +1656,7 @@ export const api = {
       body: JSON.stringify({ code, codeVerifier }),
     }),
   getSystemVersion: () => request<SystemVersionInfo>('/api/version'),
+  getSystemMetrics: () => request<SystemMetrics>('/api/system/metrics'),
   checkUpdate: () => request<SystemVersionInfo>('/api/version/check'),
   triggerUpdate: () =>
     request<{ status: string; message?: string; version?: string }>('/api/version/update', {

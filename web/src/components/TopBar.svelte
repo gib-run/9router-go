@@ -6,6 +6,8 @@
   import MenuItem from '../lib/ui/MenuItem.svelte'
   import { type ActiveTab } from '../lib/router'
   import { promptInstall, subscribeInstallPrompt } from '../lib/pwa'
+  import { language, setLocale } from '../lib/locale.svelte'
+  import LanguageFlag from './LanguageFlag.svelte'
 
   let {
     activeTab = 'endpoint',
@@ -35,6 +37,7 @@
   let isDonateOpen = $state(false)
   let isChangelogOpen = $state(false)
   let canInstall = $state(false)
+  let isLanguageOpen = $state(false)
 
   $effect(() => {
     return subscribeInstallPrompt((available) => {
@@ -196,9 +199,22 @@
     }
   )
 
-  let displayTitle = $derived(pageTitle || currentMeta.title)
+  const pt: Record<string, string> = {
+    Dashboard: 'Painel', 'Service health and usage overview': 'Saúde do serviço e resumo de uso',
+    'Endpoint & Key': 'Endpoint e chaves', 'API endpoint and key configuration': 'Configuração de endpoint e chaves de API',
+    'Providers & Endpoints': 'Provedores e endpoints', 'Manage your AI provider connections': 'Gerencie suas conexões com provedores de IA',
+    'Combo & Routing': 'Combos e roteamento', 'Model combos and failover strategies': 'Combos de modelos e estratégias de contingência',
+    'Usage & Analytics': 'Uso e análise', 'Monitor your API usage, token consumption, and request logs': 'Acompanhe uso da API, tokens e requisições',
+    'Quota Tracker': 'Cotas', 'Track and manage your API quota limits': 'Acompanhe e gerencie seus limites de uso',
+    'Token Saver': 'Economia de tokens', 'Compress prompts and outputs to save tokens': 'Comprima prompts e respostas para economizar tokens',
+    'CLI Tools': 'Ferramentas CLI', 'Configure CLI tools': 'Configure ferramentas CLI',
+    Settings: 'Configurações', 'Manage your preferences': 'Gerencie suas preferências',
+    Providers: 'Provedores', 'Toggle menu': 'Abrir menu', Login: 'Entrar', Authentication: 'Autenticação',
+  }
+  function translate(value: string) { return language.current === 'pt-BR' ? (pt[value] || value) : value }
+  let displayTitle = $derived(translate(pageTitle || currentMeta.title))
   let displayDescription = $derived(
-    pageDescription !== undefined ? pageDescription : currentMeta.description
+    translate(pageDescription !== undefined ? pageDescription : currentMeta.description)
   )
 </script>
 
@@ -258,14 +274,27 @@
     {/if}
   </div>
 
-  <!-- Right: one menu. Donate, install, theme, changelog and logout were five
-       controls competing for the same strip, and on a phone they wrapped into
-       two rows (issue #224). They now live behind a single trigger, which is
-       why the separate language dropdown and app-drawer dropdown this file
-       used to own are gone. The Language item is gone too: the dashboard ships
-       English only, and the item's handler was an empty function, so clicking
-       it did nothing (issue #240). -->
+  <!-- Language stays directly accessible in the top bar. -->
   <div class="flex items-center gap-1.5 sm:gap-2 shrink-0">
+    <div class="relative">
+      <button type="button" class="flex items-center gap-2 rounded-lg border border-border-subtle bg-surface-2 px-2.5 py-2 text-xs font-medium text-text-main shadow-sm transition-colors hover:bg-surface hover:border-primary/40" aria-label="Select language" aria-expanded={isLanguageOpen} onclick={() => (isLanguageOpen = !isLanguageOpen)}>
+        <LanguageFlag country={language.current === 'pt-BR' ? 'BR' : 'US'} />
+        <span>{language.current === 'pt-BR' ? 'Português' : 'English'}</span>
+        <span class="material-symbols-outlined text-base text-text-muted">{isLanguageOpen ? 'expand_less' : 'expand_more'}</span>
+      </button>
+      {#if isLanguageOpen}
+        <div class="absolute right-0 top-full z-50 mt-2 min-w-40 overflow-hidden rounded-xl border border-border-subtle bg-surface p-1.5 shadow-xl">
+          <button type="button" class="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm text-text-main transition-colors hover:bg-surface-2 {language.current === 'pt-BR' ? 'bg-surface-2' : ''}" onclick={() => { setLocale('pt-BR'); isLanguageOpen = false }}>
+            <LanguageFlag country="BR" /><span>Português (Brasil)</span>
+            {#if language.current === 'pt-BR'}<span class="material-symbols-outlined ml-auto text-base text-primary">check</span>{/if}
+          </button>
+          <button type="button" class="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm text-text-main transition-colors hover:bg-surface-2 {language.current === 'en' ? 'bg-surface-2' : ''}" onclick={() => { setLocale('en'); isLanguageOpen = false }}>
+            <LanguageFlag country="US" /><span>English (United States)</span>
+            {#if language.current === 'en'}<span class="material-symbols-outlined ml-auto text-base text-primary">check</span>{/if}
+          </button>
+        </div>
+      {/if}
+    </div>
     <Menu label="Account and display options" triggerIcon="account_circle" minWidth="15rem">
       <MenuItem label="Donate" icon="volunteer_activism" onSelect={() => (isDonateOpen = true)} />
 
@@ -292,7 +321,7 @@
 <!-- Escape closes the modal from anywhere on the page. The handler used to sit
      on the backdrop, which never receives focus, so it never fired; a
      <svelte:window> binding is the only place it actually runs. -->
-<svelte:window onkeydown={(e) => e.key === 'Escape' && (isDonateOpen = false)} />
+<svelte:window onkeydown={(e) => { if (e.key === 'Escape') { isDonateOpen = false; isLanguageOpen = false } }} />
 
 <!-- Donate Modal -->
 {#if isDonateOpen}

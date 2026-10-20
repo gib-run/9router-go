@@ -17,6 +17,7 @@
   import ConnectionsView from './components/connections/ConnectionsView.svelte'
   import OAuthCallbackView from './components/connections/OAuthCallbackView.svelte'
   import EndpointView from './components/EndpointView.svelte'
+  import DashboardView from './components/DashboardView.svelte'
   import LoginView from './components/LoginView.svelte'
   import MediaKindView from './components/media/MediaKindView.svelte'
   import MediaProviderDetail from './components/media/MediaProviderDetail.svelte'
@@ -41,9 +42,10 @@
   import { isNavHidden, normalizeHiddenNav } from './lib/nav'
   import { setHiddenNavEntries } from './lib/navVisibility.svelte'
   import { setDisplayCurrency } from './lib/currency.svelte'
+  import { initializeLocale } from './lib/locale.svelte'
 
   let activeTab = $state<ActiveTab>(
-    typeof window !== 'undefined' ? pathToTab(window.location.pathname) : 'endpoint'
+    typeof window !== 'undefined' ? pathToTab(window.location.pathname) : 'dashboard'
   )
   let connections = $state<ProviderConnection[]>([])
   let providerNodes = $state<ProviderNode[]>([])
@@ -183,6 +185,7 @@
   }
 
   onMount(() => {
+    initializeLocale()
     const unsubscribeUnauthorized = onUnauthorized(() => {
       isAuthenticatedState = false
       requireLogin = true
@@ -198,7 +201,7 @@
         }
       } else {
         if (activeTab === 'login') {
-          navigate('endpoint', true)
+          navigate('dashboard', true)
         }
         loadData()
       }
@@ -262,6 +265,7 @@
   })
   const pageMeta: Record<ActiveTab, { title: string; description: string }> = {
     login: { title: 'Login', description: 'Authenticate to access 9router-go' },
+    dashboard: { title: 'Dashboard', description: 'Service health and usage overview' },
     endpoint: { title: 'Endpoint & Key', description: 'API endpoint and key configuration' },
     connections: { title: 'Providers & Endpoints', description: 'Manage your AI provider connections' },
     combos: { title: 'Combo & Routing', description: 'Model combos and failover strategies' },
@@ -310,7 +314,7 @@
       isAuthenticatedState = true
       loadData()
       if (activeTab === 'login') {
-        navigate('endpoint')
+        navigate('dashboard')
       }
     }}
   />
@@ -347,6 +351,8 @@
         bind:updateInfo={systemUpdateInfo}
         bind:version={systemVersion}
         hiddenNav={hiddenNav}
+        brandName={settings.appName}
+        brandLogo={settings.appLogoUrl}
       />
     </div>
 
@@ -383,7 +389,9 @@
               <span class="font-code text-xs">Connecting to 9router-go Localhost Gateway (:20130)...</span>
             </div>
           {:else}
-            {#if activeTab === 'endpoint'}
+            {#if activeTab === 'dashboard'}
+              <DashboardView {connections} {combos} {apiKeys} />
+            {:else if activeTab === 'endpoint'}
               <EndpointView {apiKeys} {settings} onRefresh={loadData} navigate={(tab) => navigate(tab)} />
             {:else if activeTab === 'connections'}
               <ConnectionsView
