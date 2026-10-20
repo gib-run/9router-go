@@ -36,6 +36,21 @@
   const INSTALL_CMD = '9router-go update'
   let copied = $state(false)
 
+  const navIconTone: Record<string, string> = {
+    dashboard: 'text-cyan-500', endpoint: 'text-blue-500', connections: 'text-sky-500',
+    combos: 'text-violet-500', analytics: 'text-emerald-500', quota: 'text-amber-500',
+    'token-saver': 'text-pink-500', 'cli-tools': 'text-indigo-500',
+    'media-providers': 'text-fuchsia-500', 'media-embedding': 'text-teal-500',
+    'media-image': 'text-rose-500', 'media-tts': 'text-orange-500', 'media-stt': 'text-amber-600',
+    'media-video': 'text-red-500', 'media-systemone': 'text-purple-500', 'media-web': 'text-blue-400',
+    'proxy-pools': 'text-cyan-600', skills: 'text-lime-600', 'console-log': 'text-slate-500',
+    settings: 'text-slate-500', security: 'text-emerald-600', plans: 'text-yellow-500',
+  }
+
+  function iconTone(id: string, active: boolean) {
+    return active ? 'text-primary' : `${navIconTone[id] || 'text-text-muted'} group-hover:scale-110 transition-all`
+  }
+
   // Media providers accordion (collapsed by default)
   let isMediaOpen = $state(false)
 
@@ -188,7 +203,7 @@
                 ? 'bg-primary/10 text-primary font-medium'
                 : 'text-text-muted hover:bg-surface-2 hover:text-text-main'}"
             >
-              <span class="material-symbols-outlined text-[18px]">{entry.icon}</span>
+              <span class={`material-symbols-outlined text-[18px] ${iconTone(entry.id, activeTab.startsWith('media-'))}`}>{entry.icon}</span>
               <span class="text-[13px] flex-1 text-left">{entry.label}</span>
               <span
                 class="material-symbols-outlined text-[14px] transition-transform duration-200"
@@ -210,9 +225,7 @@
                       : 'text-text-muted hover:bg-surface-2 hover:text-text-main'}"
                   >
                     <span
-                      class="material-symbols-outlined text-[16px] {childActive
-                        ? 'fill-1'
-                        : 'group-hover:text-primary transition-colors'}"
+                      class={`material-symbols-outlined text-[16px] ${childActive ? 'fill-1 text-primary' : iconTone(child.id, false)}`}
                     >
                       {child.icon}
                     </span>
@@ -231,9 +244,7 @@
                 : 'text-text-muted hover:bg-surface-2 hover:text-text-main'}"
             >
               <span
-                class="material-symbols-outlined text-[18px] {active
-                  ? 'fill-1'
-                  : 'group-hover:text-primary transition-colors'}"
+                class={`material-symbols-outlined text-[18px] ${active ? 'fill-1 text-primary' : iconTone(entry.id, false)}`}
               >
                 {entry.icon}
               </span>

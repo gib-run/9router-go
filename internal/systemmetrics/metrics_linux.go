@@ -9,19 +9,36 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
 type Snapshot struct {
-	ProcessCPUPercent     float64   `json:"processCpuPercent"`
-	ProcessMemoryBytes    uint64    `json:"processMemoryBytes"`
-	ProcessMemoryPercent  float64   `json:"processMemoryPercent"`
-	SystemCPUPercent      float64   `json:"systemCpuPercent"`
-	SystemMemoryBytes     uint64    `json:"systemMemoryBytes"`
-	SystemMemoryUsedBytes uint64    `json:"systemMemoryUsedBytes"`
-	SystemMemoryPercent   float64   `json:"systemMemoryPercent"`
-	Goroutines            int       `json:"goroutines"`
-	SampledAt             time.Time `json:"sampledAt"`
+	ProcessCPUPercent        float64   `json:"processCpuPercent"`
+	ProcessMemoryBytes       uint64    `json:"processMemoryBytes"`
+	ProcessMemoryPercent     float64   `json:"processMemoryPercent"`
+	SystemCPUPercent         float64   `json:"systemCpuPercent"`
+	SystemMemoryBytes        uint64    `json:"systemMemoryBytes"`
+	SystemMemoryUsedBytes    uint64    `json:"systemMemoryUsedBytes"`
+	SystemMemoryPercent      float64   `json:"systemMemoryPercent"`
+	SystemDiskBytes          uint64    `json:"systemDiskBytes"`
+	SystemDiskUsedBytes      uint64    `json:"systemDiskUsedBytes"`
+	SystemDiskAvailableBytes uint64    `json:"systemDiskAvailableBytes"`
+	SystemDiskPercent        float64   `json:"systemDiskPercent"`
+	Goroutines               int       `json:"goroutines"`
+	SampledAt                time.Time `json:"sampledAt"`
+}
+
+func readDisk() (uint64, uint64, uint64) {
+	var stat syscall.Statfs_t
+	if err := syscall.Statfs("/", &stat); err != nil {
+		return 0, 0, 0
+	}
+	blockSize := uint64(stat.Bsize)
+	total := stat.Blocks * blockSize
+	used := (stat.Blocks - min(stat.Blocks, stat.Bfree)) * blockSize
+	available := stat.Bavail * blockSize
+	return total, used, available
 }
 
 var sampleMu sync.Mutex
@@ -125,7 +142,16 @@ func Read() Snapshot {
 	proc, rss, _ := readProcTicks()
 	total, idle := readSystemTicks()
 	memTotal, memAvailable := readMemory()
-	result := Snapshot{ProcessMemoryBytes: rss, SystemMemoryBytes: memTotal, Goroutines: runtime.NumGoroutine(), SampledAt: now}
+	diskTotal, diskUsed, diskAvailable := readDisk()
+	result := Snapshot{
+		ProcessMemoryBytes: rss, SystemMemoryBytes: memTotal,
+		SystemDiskBytes: diskTotal, SystemDiskUsedBytes: diskUsed,
+		SystemDiskAvailableBytes: diskAvailable,
+		Goroutines:               runtime.NumGoroutine(), SampledAt: now,
+	}
+	if diskTotal > 0 {
+		result.SystemDiskPercent = float64(diskUsed) * 100 / float64(diskTotal)
+	}
 	if memTotal > 0 {
 		result.SystemMemoryUsedBytes = memTotal - memAvailable
 		result.SystemMemoryPercent = float64(result.SystemMemoryUsedBytes) * 100 / float64(memTotal)

@@ -284,6 +284,10 @@ export interface SystemMetrics {
   systemMemoryBytes: number
   systemMemoryUsedBytes: number
   systemMemoryPercent: number
+  systemDiskBytes: number
+  systemDiskUsedBytes: number
+  systemDiskAvailableBytes: number
+  systemDiskPercent: number
   goroutines: number
   sampledAt: string
 }
