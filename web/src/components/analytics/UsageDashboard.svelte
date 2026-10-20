@@ -1,8 +1,6 @@
 <script lang="ts">
-  // Details-section dashboard (issue #280): lifetime cards, activity heatmap,
-  // and node health above the request-details table. Port of
-  // techysy/10router's UsageDashboard; every number obeys the unit-abbreviation
-  // switch like the Overview cards.
+  // Details-section dashboard (issue #280): activity heatmap and node health
+  // above the request-details table.
   import { onMount } from 'svelte'
   import { api, type UsageDashboardResponse, type UsageLifetime } from '../../api/client'
   import { fmtTokens } from '../../lib/compactNumber'

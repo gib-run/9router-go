@@ -219,8 +219,10 @@ func TestHandleUsageDashboard(t *testing.T) {
 	if payload.Lifetime.TopModel == nil || payload.Lifetime.TopModel.Model != "deepseek-chat" {
 		t.Errorf("topModel = %+v, want deepseek-chat", payload.Lifetime.TopModel)
 	}
-	if payload.Lifetime.CacheHitRate == nil {
-		t.Errorf("cacheHitRate must be computed from cached rows")
+	// Every seeded row is 1000 prompt tokens of which 300 are cached, so the
+	// window-derived rate is 300/1000 = 30%.
+	if payload.Lifetime.CacheHitRate == nil || *payload.Lifetime.CacheHitRate != 30 {
+		t.Errorf("cacheHitRate = %v, want 30 from the trailing-7-day rows", payload.Lifetime.CacheHitRate)
 	}
 	if len(payload.Nodes) != 1 {
 		t.Fatalf("len(nodes) = %d, want the one provider above 50 requests", len(payload.Nodes))
