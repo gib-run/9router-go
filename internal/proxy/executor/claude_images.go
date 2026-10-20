@@ -88,3 +88,53 @@ func convertClaudeImageParts(content any) any {
 	}
 	return out
 }
+
+// imageEmptiedMarker tags an intermediate message whose content array held
+// only image parts that Claude cannot represent, so convertClaudeImageParts left
+// it with nothing. It never reaches the wire: dropImageEmptiedMessages removes
+// the message, or the marker, before the body is built.
+const imageEmptiedMarker = "\x00imageEmptied"
+
+// emptiedByImageDrop reports whether converting `before` into `after` removed
+// every part: a non-empty array of image parts that all turned out to be
+// unrepresentable. A message the client itself sent with an empty array is not
+// ours to repair and is not reported.
+func emptiedByImageDrop(before, after any) bool {
+	in, ok := before.([]any)
+	if !ok || len(in) == 0 {
+		return false
+	}
+	out, ok := after.([]any)
+	return ok && len(out) == 0
+}
+
+// dropImageEmptiedMessages removes the messages convertClaudeImageParts emptied.
+// Anthropic rejects `content: []` ("messages.<n>: content must not be empty"),
+// and the bad turn stays in the client's history, so every later request of the
+// conversation fails the same way. Only messages emptied by this conversion are
+// touched; the same-role merge that follows joins the neighbours the removal
+// leaves adjacent.
+//
+// A conversation this would empty completely keeps its turns (without the
+// marker): an empty `messages` array is its own rejection, and the caller that
+// sent only unrepresentable images should get the provider's reason rather than
+// a silently rewritten request.
+func dropImageEmptiedMessages(messages []map[string]any) []map[string]any {
+	kept := make([]map[string]any, 0, len(messages))
+	for _, m := range messages {
+		if m[imageEmptiedMarker] != nil {
+			continue
+		}
+		kept = append(kept, m)
+	}
+	if len(kept) == 0 {
+		for _, m := range messages {
+			delete(m, imageEmptiedMarker)
+		}
+		return messages
+	}
+	for _, m := range kept {
+		delete(m, imageEmptiedMarker)
+	}
+	return kept
+}

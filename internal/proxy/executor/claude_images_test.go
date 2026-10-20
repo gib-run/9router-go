@@ -152,3 +152,70 @@ func TestConvertClaudeImageParts_DoesNotMutateInput(t *testing.T) {
 		t.Fatalf("input was mutated: %#v", in)
 	}
 }
+
+const unrepresentableImg = `{"type":"image_url","image_url":{"url":"file:///tmp/a.png"}}`
+
+// A user turn whose only part is an image Claude cannot represent must be
+// dropped, not forwarded as `content: []`, which Anthropic rejects and which
+// then poisons every later turn of the conversation.
+func TestEnsureClaudeMessages_AllDroppedUserTurnIsRemoved(t *testing.T) {
+	msgs := claudeMessagesOf(t, `{"model":"claude-sonnet-5-5","messages":[
+		{"role":"user","content":"hello"},
+		{"role":"assistant","content":"ok"},
+		{"role":"user","content":[`+unrepresentableImg+`]},
+		{"role":"assistant","content":"saw it"},
+		{"role":"user","content":"again"}]}`)
+	for i, m := range msgs {
+		if c, ok := m.(map[string]any)["content"].([]any); ok && len(c) == 0 {
+			t.Fatalf("message %d still has empty content: %#v", i, msgs)
+		}
+		if _, leaked := m.(map[string]any)[imageEmptiedMarker]; leaked {
+			t.Fatalf("internal marker leaked into message %d: %#v", i, m)
+		}
+	}
+	// user, assistant, (dropped), assistant, user -> the two assistant turns merge.
+	if len(msgs) != 3 {
+		t.Fatalf("want 3 messages after the drop and same-role merge, got %d: %#v", len(msgs), msgs)
+	}
+	roles := []string{"user", "assistant", "user"}
+	for i, want := range roles {
+		if got := msgs[i].(map[string]any)["role"]; got != want {
+			t.Fatalf("message %d role = %v, want %v: %#v", i, got, want, msgs)
+		}
+	}
+}
+
+// Dropping the only turn would leave an empty `messages` array, which is its own
+// rejection, so the turns are kept and the caller gets the provider's reason.
+func TestEnsureClaudeMessages_AllDroppedOnlyTurnIsKept(t *testing.T) {
+	msgs := claudeMessagesOf(t, `{"model":"claude-sonnet-5-5","messages":[
+		{"role":"user","content":[`+unrepresentableImg+`]}]}`)
+	if len(msgs) != 1 {
+		t.Fatalf("an emptied-only conversation must keep its turn, got %#v", msgs)
+	}
+	if _, leaked := msgs[0].(map[string]any)[imageEmptiedMarker]; leaked {
+		t.Fatalf("internal marker leaked: %#v", msgs[0])
+	}
+}
+
+// A turn that still has text after the image is dropped is not touched.
+func TestEnsureClaudeMessages_PartiallyDroppedTurnSurvives(t *testing.T) {
+	msgs := claudeMessagesOf(t, `{"model":"claude-sonnet-5-5","messages":[
+		{"role":"user","content":[{"type":"text","text":"look"},`+unrepresentableImg+`]}]}`)
+	if len(msgs) != 1 || len(contentBlocks(t, msgs[0])) != 1 {
+		t.Fatalf("the text part must survive: %#v", msgs)
+	}
+}
+
+// A message the client itself sent with an empty array is not ours to repair.
+func TestEmptiedByImageDrop_ClientEmptyArrayIsNotReported(t *testing.T) {
+	if emptiedByImageDrop([]any{}, []any{}) {
+		t.Fatalf("a client-sent empty array must not be reported as emptied by the drop")
+	}
+	if emptiedByImageDrop("plain", "plain") {
+		t.Fatalf("string content must not be reported")
+	}
+	if !emptiedByImageDrop([]any{map[string]any{"type": "image_url"}}, []any{}) {
+		t.Fatalf("an array reduced to nothing must be reported")
+	}
+}

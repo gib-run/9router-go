@@ -17,7 +17,12 @@ an `image_url` part, and any OpenAI SDK client sending a vision message to a
 URI becomes `{type:"image",source:{type:"base64",media_type,data}}` and an
 `http(s)` URL becomes `{type:"image",source:{type:"url",url}}`. A part Claude has
 no way to represent (`file://`, a non-base64 data URI) is dropped, because
-forwarding it would only reproduce the 400 on every later turn. This matches
+forwarding it would only reproduce the 400 on every later turn. A turn whose
+only parts were dropped is removed from the request as well, because
+`content: []` is its own 400 ("content must not be empty") that would poison the
+conversation the same way; the neighbours it leaves adjacent merge as usual. When
+that would empty the whole conversation the turn is kept, since an empty
+`messages` array is also rejected, and the provider's reason reaches the caller. This matches
 upstream `open-sse/translator/request/openai-to-claude.js`, the `IMAGE_URL`
 branch; the Go port had no OpenAI→Claude equivalent.
 

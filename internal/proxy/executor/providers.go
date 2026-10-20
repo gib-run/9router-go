@@ -1190,6 +1190,8 @@ func convertOpenAIMessagesToClaude(messages []any) (systemText string, claudeMes
 		intermediate = append(intermediate, claudeMessage(msgMap))
 	}
 
+	intermediate = dropImageEmptiedMessages(intermediate)
+
 	var merged []any
 	for _, m := range intermediate {
 		if len(merged) == 0 {
@@ -1225,7 +1227,11 @@ func claudeMessage(msgMap map[string]any) map[string]any {
 		}
 	}
 	if content, has := clean["content"]; has {
-		clean["content"] = convertClaudeImageParts(content)
+		converted := convertClaudeImageParts(content)
+		clean["content"] = converted
+		if emptiedByImageDrop(content, converted) {
+			clean[imageEmptiedMarker] = true
+		}
 	}
 	return clean
 }
