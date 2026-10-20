@@ -1,4 +1,5 @@
 import type { Locale } from './locale.svelte'
+import { generatedPtBR } from './page-translations.generated'
 
 // Translate only exact interface strings. Provider/model names, logs, prompts,
 // API responses, and anything typed by the user are left untouched.
@@ -96,6 +97,9 @@ const ptBR: Record<string, string> = {
   'Show Less': 'Mostrar menos', 'Expand': 'Expandir', 'Collapse': 'Recolher', 'Documentation': 'Documentação',
   'Change Log': 'Registro de alterações', 'View on GitHub': 'Ver no GitHub', 'Loading change log...': 'Carregando registro de alterações...',
   'Failed to load change log': 'Falha ao carregar o registro de alterações',
+  'Prompt caching and semantic deduplication tracking across all AI providers.': 'Cache de prompts e acompanhamento da desduplicação semântica em todos os provedores de IA.',
+  '2. Caveman (Linguistic Economy)': '2. Caveman (economia linguística)',
+  '3. ADHD (Action-First Format)': '3. ADHD (formato focado em ações)',
   'Direct, secure connection points to your local AI router': 'Pontos de conexão diretos e seguros para seu roteador de IA local',
   'Tunnel reconnecting...': 'Reconectando ao túnel...', 'Tunnel checking...': 'Verificando o túnel...',
   'Creating tunnel...': 'Criando túnel...', 'Tailscale reconnecting...': 'Reconectando ao Tailscale...',
@@ -189,7 +193,8 @@ const ptBR: Record<string, string> = {
   'Restart required': 'É necessário reiniciar', 'Restart service': 'Reiniciar serviço',
 }
 
-const enByPt = new Map(Object.entries(ptBR).map(([en, pt]) => [pt, en]))
+const pageTranslations = { ...generatedPtBR, ...ptBR }
+const enByPt = new Map(Object.entries(pageTranslations).map(([en, pt]) => [pt, en]))
 type NodeTranslation = { english: string; rendered: string }
 const nodeTranslations = new WeakMap<Text, NodeTranslation>()
 const attributeTranslations = new WeakMap<Element, Map<string, NodeTranslation>>()
@@ -201,9 +206,10 @@ function normalize(value: string) {
 
 function translateValue(value: string, locale: Locale) {
   const key = normalize(value)
-  const english = ptBR[key] ? key : enByPt.get(key)
+  if (/-----BEGIN |-----END |^\s*(export|npm install|curl|git clone|go run)\b/i.test(key)) return null
+  const english = pageTranslations[key] ? key : enByPt.get(key)
   if (!english) return null
-  return locale === 'pt-BR' ? ptBR[english] : english
+  return locale === 'pt-BR' ? pageTranslations[english] : english
 }
 
 function localizeTree(root: HTMLElement, locale: Locale) {
@@ -211,7 +217,7 @@ function localizeTree(root: HTMLElement, locale: Locale) {
   let node: Node | null
   while ((node = walker.nextNode())) {
     const text = node as Text
-    if (!text.data.trim() || text.parentElement?.closest('code, pre, script, style, textarea, [contenteditable="true"], [data-no-translate], .material-symbols-outlined')) continue
+    if (!text.data.trim() || text.parentElement?.closest('code, pre, script, style, textarea, [contenteditable="true"], [data-no-translate], .material-symbols-outlined, .font-code, .font-mono')) continue
     const previous = nodeTranslations.get(text)
     const source = previous && text.data === previous.rendered ? previous.english : text.data
     const translated = translateValue(source, locale)
@@ -254,7 +260,7 @@ export function localizePage(node: HTMLElement, locale: Locale) {
     for (const record of records) {
       if (record.type === 'characterData' && record.target.parentElement?.isConnected) {
         const parent = record.target.parentElement
-        if (parent.closest('code, pre, script, style, textarea, [contenteditable="true"], [data-no-translate], .material-symbols-outlined')) continue
+        if (parent.closest('code, pre, script, style, textarea, [contenteditable="true"], [data-no-translate], .material-symbols-outlined, .font-code, .font-mono')) continue
         const text = record.target as Text
         const previous = nodeTranslations.get(text)
         const source = previous && text.data === previous.rendered ? previous.english : text.data
@@ -271,7 +277,7 @@ export function localizePage(node: HTMLElement, locale: Locale) {
           if (added.nodeType === Node.ELEMENT_NODE) localizeTree(added as HTMLElement, currentLocale)
           else if (added.nodeType === Node.TEXT_NODE) {
             const text = added as Text
-            if (text.parentElement?.closest('code, pre, script, style, textarea, [contenteditable="true"], [data-no-translate], .material-symbols-outlined')) continue
+            if (text.parentElement?.closest('code, pre, script, style, textarea, [contenteditable="true"], [data-no-translate], .material-symbols-outlined, .font-code, .font-mono')) continue
             const source = text.data
             const translated = translateValue(source, currentLocale)
             if (translated !== null) {
