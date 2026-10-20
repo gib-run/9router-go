@@ -637,7 +637,9 @@ func (h *ChatHandler) handleComboFallback(ctx context.Context, w http.ResponseWr
 						// The last member's zero-content answer is served as a 200 (FR3).
 						cw.Header().Set("Content-Type", "application/json")
 						cw.WriteHeader(http.StatusOK)
-						cw.Write(zcErr.Body)
+						if _, err := cw.Write(zcErr.Body); err != nil {
+							log.Warn("combo", "client write failed", "provider", modelInfo.Provider, "model", modelInfo.Model, "error", err)
+						}
 						return
 					}
 					if ctx.Err() != nil {
@@ -877,7 +879,9 @@ func (h *ChatHandler) handleMessagesComboFallback(ctx context.Context, w http.Re
 						// The last member's zero-content answer is served as a 200 (FR3).
 						cw.Header().Set("Content-Type", "application/json")
 						cw.WriteHeader(http.StatusOK)
-						cw.Write(zcErr.Body)
+						if _, err := cw.Write(zcErr.Body); err != nil {
+							log.Warn("combo", "client write failed", "provider", modelInfo.Provider, "model", modelInfo.Model, "error", err)
+						}
 						return
 					}
 					if ctx.Err() != nil {
