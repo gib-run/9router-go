@@ -433,41 +433,20 @@
   <SectionMenu {section} onSectionChange={(next) => (section = next)} />
 {/snippet}
 
-<!-- Both optional Overview panels are collapsed by default and say so with a
-     chevron, the same affordance the Details panels use. -->
-{#snippet comboFlowIcon()}
-  <span class="material-symbols-outlined text-[18px]" aria-hidden="true">account_tree</span>
-{/snippet}
-{#snippet comboFlowToggle()}
+<!-- Both optional Overview panels are collapsed by default and say so with the
+     same chevron the Details panels use, so a reader recognizes the affordance
+     without learning a second one. -->
+{#snippet panelToggle(open: boolean, label: string, onToggle: () => void)}
   <button
     type="button"
-    aria-expanded={comboFlowOpen}
-    aria-label="Toggle Combo flow"
-    onclick={() => (comboFlowOpen = !comboFlowOpen)}
-    class="p-1 rounded-lg text-text-muted hover:text-text-main hover:bg-surface-2 transition-colors cursor-pointer"
+    aria-expanded={open}
+    aria-label="Toggle {label}"
+    onclick={onToggle}
+    class="shrink-0 cursor-pointer self-start rounded-lg p-1 text-text-muted transition-colors hover:bg-surface-3 hover:text-text-main focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/50 sm:self-auto"
   >
     <span
       class="material-symbols-outlined text-[18px] transition-transform duration-200"
-      style:transform={comboFlowOpen ? 'rotate(180deg)' : 'rotate(0deg)'}
-    >
-      expand_more
-    </span>
-  </button>
-{/snippet}
-{#snippet usageTrendIcon()}
-  <span class="material-symbols-outlined text-[18px]" aria-hidden="true">monitoring</span>
-{/snippet}
-{#snippet usageTrendToggle()}
-  <button
-    type="button"
-    aria-expanded={usageTrendOpen}
-    aria-label="Toggle Usage trend"
-    onclick={() => (usageTrendOpen = !usageTrendOpen)}
-    class="p-1 rounded-lg text-text-muted hover:text-text-main hover:bg-surface-2 transition-colors cursor-pointer"
-  >
-    <span
-      class="material-symbols-outlined text-[18px] transition-transform duration-200"
-      style:transform={usageTrendOpen ? 'rotate(180deg)' : 'rotate(0deg)'}
+      style:transform={open ? 'rotate(180deg)' : 'rotate(0deg)'}
     >
       expand_more
     </span>
@@ -528,15 +507,35 @@
         <!-- Combo flow: router -> combo -> members, only while a combo is in use
              (or just finished). The provider map keeps its own animation. The
              panel starts collapsed: the flow is only interesting while a request
-             is moving, and an expanded empty tree reads as a broken panel. -->
-        <Card padding="md" title="Combo flow" icon={comboFlowIcon} action={comboFlowToggle}>
+             is moving, and an expanded empty tree reads as a broken panel. The
+             header is the Details panels' own — same fonts, same chevron, with
+             the panel's icon in front of the title. -->
+        <Card padding="none" class="overflow-hidden border border-border">
+          <div
+            class="flex flex-col gap-3 bg-surface-2 px-5 py-3 sm:flex-row sm:items-center sm:justify-between {comboFlowOpen
+              ? 'border-b border-border'
+              : ''}"
+          >
+            <div class="flex min-w-0 items-center gap-2">
+              <span class="material-symbols-outlined text-[18px] text-text-muted" aria-hidden="true"
+                >account_tree</span
+              >
+              <div class="min-w-0">
+                <h2 class="font-headline text-sm font-bold text-text-main">Combo flow</h2>
+                <p class="font-body text-xs text-text-muted">Router → combo → members, live</p>
+              </div>
+            </div>
+            {@render panelToggle(comboFlowOpen, 'Combo flow', () => (comboFlowOpen = !comboFlowOpen))}
+          </div>
           {#if comboFlowOpen}
-            <ComboFlowCard
-              combos={comboDefs}
-              {activeRequests}
-              recentRequests={stats.recentRequests || []}
-              {errorProvider}
-            />
+            <div class="p-5">
+              <ComboFlowCard
+                combos={comboDefs}
+                {activeRequests}
+                recentRequests={stats.recentRequests || []}
+                {errorProvider}
+              />
+            </div>
           {/if}
         </Card>
       {:else if block.key === 'overview.topology+overview.recent'}
@@ -551,14 +550,27 @@
       {:else if block.key === 'overview.trend'}
         <!-- Usage trend: the same collapsed-by-default shape as Combo flow, so the
              two optional panels read alike. -->
-        <Card
-          padding="md"
-          title="Usage trend"
-          icon={usageTrendIcon}
-          action={usageTrendToggle}
-        >
+        <Card padding="none" class="overflow-hidden border border-border">
+          <div
+            class="flex flex-col gap-3 bg-surface-2 px-5 py-3 sm:flex-row sm:items-center sm:justify-between {usageTrendOpen
+              ? 'border-b border-border'
+              : ''}"
+          >
+            <div class="flex min-w-0 items-center gap-2">
+              <span class="material-symbols-outlined text-[18px] text-text-muted" aria-hidden="true"
+                >monitoring</span
+              >
+              <div class="min-w-0">
+                <h2 class="font-headline text-sm font-bold text-text-main">Usage trend</h2>
+                <p class="font-body text-xs text-text-muted">Requests per day, selected window</p>
+              </div>
+            </div>
+            {@render panelToggle(usageTrendOpen, 'Usage trend', () => (usageTrendOpen = !usageTrendOpen))}
+          </div>
           {#if usageTrendOpen}
-            <UsageChart {period} />
+            <div class="p-5">
+              <UsageChart {period} />
+            </div>
           {/if}
         </Card>
       {:else if block.key === 'overview.breakdown'}

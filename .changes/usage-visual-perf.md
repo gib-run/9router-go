@@ -110,7 +110,11 @@
 - **Combo flow and Usage trend are collapsible, and stop querying when hidden.**
   Ported from upstream #429: both optional Overview panels are Cards with a
   chevron in the header, closed by default, and the two sit last in the declared
-  order so a reader reaches the numbers before a disclosure row. Hiding the Combo
+  order so a reader reaches the numbers before a disclosure row. Their headers are
+  the Details panels' own — `font-headline text-sm font-bold` title over
+  `font-body text-xs` label, measured as Inter 14px/700 and Inter 12px/400, the
+  same as Activity Heatmap and Node Health — with the panel's icon in front of the
+  title. Hiding the Combo
   flow panel in Settings now also skips `GET /api/combos` outright — the panel
   draws nothing then, so the definitions would only cost a request and memory —
   and turning it back on refetches without a reload, because the fetch reads the
@@ -123,6 +127,13 @@
   duplicate a number. Verified in the browser with every Details panel enabled —
   all five render (30,228 / 2.1B / 184.1M / 89.3% / perf-model), beside the
   Activity Heatmap and Node Health.
+- **The lifetime cache-hit rate costs no extra query.** Ported from upstream #426:
+  `GetCacheUsageRows` scanned the whole ledger with a `LIKE '%cached%'` prefilter
+  purely to build that one percentage. It is gone; `windowCacheHitRate` computes
+  the same number from the trailing-7-day rows the Top Model card already reads,
+  with the cache-inclusive/cache-exclusive shapes resolved by
+  `max(prompt, cached+creation)` and cache-only imports excluded. `cacheTokens`
+  and `cacheRequests` went with the scan — no card read them.
 - **Observability & Storage Retention no longer empties itself.** Its database
   size, row counts, reclaimable figure and the three prune/vacuum buttons all sat
   behind `{#if dbStats}`, and `loadDbStats()` swallowed the error — so on an
