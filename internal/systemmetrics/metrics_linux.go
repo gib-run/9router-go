@@ -47,23 +47,23 @@ var previous struct {
 	proc, total, idle uint64
 }
 
-func readProcTicks() (uint64, uint64, uint64) {
+func readProcTicks() (uint64, uint64) {
 	b, err := os.ReadFile("/proc/self/stat")
 	if err != nil {
-		return 0, 0, 0
+		return 0, 0
 	}
 	end := strings.LastIndexByte(string(b), ')')
 	if end < 0 {
-		return 0, 0, 0
+		return 0, 0
 	}
 	f := strings.Fields(string(b)[end+1:])
 	if len(f) < 22 {
-		return 0, 0, 0
+		return 0, 0
 	}
 	user, _ := strconv.ParseUint(f[11], 10, 64)
 	sys, _ := strconv.ParseUint(f[12], 10, 64)
 	rssPages, _ := strconv.ParseUint(f[21], 10, 64)
-	return user + sys, rssPages * uint64(os.Getpagesize()), 0
+	return user + sys, rssPages * uint64(os.Getpagesize())
 }
 
 func readSystemTicks() (uint64, uint64) {
@@ -71,7 +71,7 @@ func readSystemTicks() (uint64, uint64) {
 	if err != nil {
 		return 0, 0
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	s := bufio.NewScanner(f)
 	if !s.Scan() {
 		return 0, 0
@@ -106,7 +106,7 @@ func readMemory() (uint64, uint64) {
 	if err != nil {
 		return 0, 0
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	var total, available uint64
 	s := bufio.NewScanner(f)
 	for s.Scan() {
@@ -139,7 +139,7 @@ func readCgroupUint(path string) (uint64, error) {
 
 func Read() Snapshot {
 	now := time.Now()
-	proc, rss, _ := readProcTicks()
+	proc, rss := readProcTicks()
 	total, idle := readSystemTicks()
 	memTotal, memAvailable := readMemory()
 	diskTotal, diskUsed, diskAvailable := readDisk()
@@ -162,6 +162,7 @@ func Read() Snapshot {
 			result.SystemCPUPercent = float64(total-previous.total-idle+previous.idle) * 100 / float64(total-previous.total)
 		}
 		if proc >= previous.proc {
+			// Linux reports process ticks at USER_HZ; supported Linux targets use 100.
 			result.ProcessCPUPercent = float64(proc-previous.proc) * 100 / 100 / now.Sub(previous.at).Seconds()
 		}
 	}

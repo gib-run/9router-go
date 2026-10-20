@@ -630,10 +630,10 @@
       </div>
       <p class="text-xs text-text-muted">{language.current === 'pt-BR' ? 'Personalize o nome e a logo exibidos no menu. Deixe em branco para usar o padrão do 9router-go.' : 'Customize the name and logo shown in the dashboard sidebar. Leave blank to use the 9router-go defaults.'}</p>
       <label class="block space-y-1"><span class="text-xs font-medium text-text-main">{language.current === 'pt-BR' ? 'Nome da aplicação' : 'Application name'}</span>
-        <Input bind:value={appName} placeholder="9router-go" maxlength={60} />
+        <Input bind:value={appName} placeholder="9router-go" />
       </label>
       <label class="block space-y-1"><span class="text-xs font-medium text-text-main">{language.current === 'pt-BR' ? 'URL da logo' : 'Logo URL'}</span>
-        <Input bind:value={appLogoUrl} placeholder="https://example.com/logo.png" maxlength={500} />
+        <Input bind:value={appLogoUrl} placeholder="https://example.com/logo.png" />
       </label>
       {#if appLogoUrl}<div class="flex items-center gap-3 rounded-lg bg-surface-2 p-3"><img src={appLogoUrl} alt={language.current === 'pt-BR' ? 'Prévia da logo' : 'Logo preview'} class="h-10 w-10 rounded object-contain" /><span class="text-xs text-text-muted">{language.current === 'pt-BR' ? 'Prévia' : 'Preview'}</span></div>{/if}
     </Card>

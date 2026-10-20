@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"crypto/subtle"
 	"database/sql"
+	json "encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -12,7 +13,6 @@ import (
 	"net/url"
 	"strings"
 	"time"
-	json "encoding/json/v2"
 
 	"golang.org/x/crypto/bcrypt"
 
@@ -120,7 +120,12 @@ func (h *DashboardHandler) HandleUpdateSettings(w http.ResponseWriter, r *http.R
 		}
 		if logo != "" {
 			parsed, err := url.Parse(logo)
-			if err != nil || (parsed.Scheme != "https" && !(parsed.Scheme == "" && strings.HasPrefix(logo, "/") && !strings.HasPrefix(logo, "//"))) {
+			if err != nil {
+				handlerutil.WriteJSONError(w, http.StatusBadRequest, "appLogoUrl must be an HTTPS URL or a local absolute path")
+				return
+			}
+			isLocalPath := parsed.Scheme == "" && strings.HasPrefix(logo, "/") && !strings.HasPrefix(logo, "//")
+			if parsed.Scheme != "https" && !isLocalPath {
 				handlerutil.WriteJSONError(w, http.StatusBadRequest, "appLogoUrl must be an HTTPS URL or a local absolute path")
 				return
 			}
