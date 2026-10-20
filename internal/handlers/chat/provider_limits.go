@@ -167,7 +167,6 @@ func (s *providerLimitState) cacheVerdict(provider string, verdict *providerLimi
 	s.verdicts[provider] = verdict
 }
 
-
 // providerLimitsFor reads a provider's policy, memoised for the request.
 //
 // A failed read answers "unlimited" rather than refusing: a storage blip must not
