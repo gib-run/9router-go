@@ -431,11 +431,31 @@ func (h *ChatHandler) recordProviderLimit(ctx context.Context, state *providerLi
 	if connectionID == "" || h.Repo == nil {
 		return
 	}
-	message := fmt.Sprintf("provider %s refused this request at its %s limit (%d)", provider, attempt.Axis, attempt.Limit)
+	// The row must carry the status the client received, not a fixed one: an
+	// expired contract reaches this function with axis "contract", and writing
+	// 429 there puts "too many requests" on a node-health row whose real
+	// condition is "the operator let the contract lapse".
+	status := providerRefusalStatus(attempt.Axis)
+	message := providerRefusalMessage(provider, attempt)
 	if err := h.Repo.RecordConnectionScopedError(
-		connectionID, model, providerLimitScope, http.StatusTooManyRequests, message, 0,
+		connectionID, model, providerLimitScope, status, message, 0,
 	); err != nil {
 		log.Debug("providerlimit", "record refusal on connection failed", "conn", connectionID, "error", err)
+	}
+}
+
+// providerRefusalMessage is the one line the dashboard's node-health row shows.
+// The two families need different wording because their remedies differ: a
+// congestion refusal clears itself, and a node-state refusal waits for an
+// operator.
+func providerRefusalMessage(provider string, attempt providerLimitAttempt) string {
+	switch attempt.Axis {
+	case axisContract:
+		return fmt.Sprintf("provider %s contract has ended; an operator must renew it", provider)
+	case axisTokenQuota:
+		return fmt.Sprintf("provider %s lifetime token quota is spent (%d)", provider, attempt.Limit)
+	default:
+		return fmt.Sprintf("provider %s refused this request at its %s limit (%d)", provider, attempt.Axis, attempt.Limit)
 	}
 }
 

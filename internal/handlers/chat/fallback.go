@@ -173,6 +173,19 @@ func (h *ChatHandler) handleAccountFallback(
 			lastErr = err
 			observ.IncFallback(provider, model, observ.FallbackReasonUpstreamError)
 		}
+		// A node-state refusal (contract ended, lifetime quota spent) answers 403, which
+		// is a retryable status, so without this it would fall into the generic branch
+		// below and park the connection for two minutes on the model *and* on the
+		// account — for a fact about the node, not about the credential. The combo loops
+		// already intercept it before their writers; the single-provider path arrives
+		// here, through a pinned connection that skipped the selection-time check.
+		if _, refused := providerLimitRefusal(lastErr); refused {
+			log.Info("fallback", "provider node state, not locking the account",
+				"provider", provider, "model", model, "conn", connObj.ID)
+			excludeIDs = append(excludeIDs, connObj.ID)
+			continue
+		}
+
 		var ue *upstreamError
 		if errors.As(lastErr, &ue) && providers.IsModelDeprecation(ue.StatusCode, ue.Body) {
 			// A retired model fails on every account of this provider, so the

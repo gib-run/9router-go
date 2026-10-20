@@ -358,9 +358,13 @@ type ledgerCarry struct {
 	providers map[string]int64
 }
 
-// total is every token this chunk carried, across both dimensions. It is the one
-// number LedgerPruneResult reports: spend this prune would otherwise have
-// refunded, whichever budget it would have been refunded from.
+// total is every token this chunk carried, summed over both dimensions: the
+// per-key carryover and the per-provider-node carryover. It is a sum of two
+// ledgers, not a count of distinct tokens — a row that belongs to a watched key
+// *and* a watched node is carried into both tables and counted twice here, which
+// is correct for the question the number answers (how much spend this prune
+// stopped refunding) and wrong for "how many tokens were deleted". `Rows` is the
+// deletion figure.
 func (c ledgerCarry) total() int64 {
 	var sum int64
 	for _, tokens := range c.keys {

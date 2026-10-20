@@ -101,7 +101,25 @@ Keputusan ini dipilih Cak Helmi (2026-10-18), menggantikan usulan awal "antre la
 Empat lapis, semuanya memakai jalur yang sudah ada:
 1. **Log terstruktur** (`internal/log`), satu baris per pelanggaran, dengan field yang menjawab "provider mana, limit apa, berapa": `provider` (node id), `node` (nama node), `kind` (`rpm` | `tpm` | `concurrency` | `token_quota` | `contract`), `limit`, `observed`, `queueWaitMs`, `retryAfter`, `attempt` (indeks kandidat), `model`, `apiKeyId`.
 2. **Counter yang sudah ada**: `observ.IncRateLimitReject(scope, keyID)` (`internal/observ/metrics.go:217`) dipanggil dengan `scope="provider"`, `key=nodeID` → seri `router_rate_limit_rejects_total{scope="provider"}`. **Catatan implementasi:** `ObserveRateLimitQueueWait` masih menulis label `scope="api_key"` hardcoded (`metrics.go:232`); perlu satu parameter scope agar tunggu antrean provider terukur dan tidak salah label.
-3. **Jejak di dashboard**: `Repo.RecordConnectionScopedError(connID, model, source, 429, text, 0)` (`internal/db/accounts.go:69`) — menulis `lastError` **tanpa** memasang cooldown (berbeda dari `LockConnectionRateLimit`), jadi node-health table menampilkan penyebabnya tanpa mengunci node.
+3. **Jejak di dashboard**: `Repo.RecordConnectionScopedError(connID, model, source, status, text, 0)` (`internal/db/accounts.go:69`, `status` dari `providerRefusalStatus(axis)`: 429 untuk kemacetan, 403 untuk node-state) — menulis `lastError` **tanpa** memasang cooldown (berbeda dari `LockConnectionRateLimit`), jadi node-health table menampilkan penyebabnya tanpa mengunci node.
+
+   **Koreksi (2026-10-20, temuan review PR #432):** "tanpa cooldown" hanya benar untuk sumbu kemacetan
+   (`rpm`/`tpm`/`concurrency`, 429). Untuk sumbu node-state (`contract`/`token_quota`, 403) jalur single-provider
+   sempat tetap memarkir akun selama 120 detik. Sebabnya: loop `handleAccountFallback`
+   (`internal/handlers/chat/fallback.go:142`) memanggil `getBestConnectionWithContext` dengan `c.ID` — yaitu
+   **pin** — sehingga pemeriksaan node-state yang duduk di cabang `if conn == nil` (`connections.go:282`) terlewati;
+   403 dari `acquireProviderAttempt` lalu kembali sebagai `*upstreamError` dan jatuh ke cabang generik
+   `providers.RetryableStatusCodes` (`fallback.go:201`), yang menulis `LockConnectionModel` +
+   `LockConnectionRateLimit`. Loop combo tidak terkena karena sudah menyaring lewat `providerLimitRefusal` sebelum
+   penulisnya (`combo.go:653`, `:901`). Perbaikannya: saringan yang sama di kepala cabang generik
+   `handleAccountFallback`, sehingga penolakan bertipe dilewati tanpa menyentuh cooldown.
+   Dikunci oleh `TestProviderNodeStateRefusalDoesNotParkTheConnection` (integration; dua request berurutan harus
+   sama-sama 403 bertipe, baris connection tanpa `rateLimitedUntil` dan tanpa `modelLock_*`).
+
+   Baris `lastError` tetap ditulis — itu lapis 3 yang memang ada untuk node-health, dan selector tidak membacanya
+   (`pinnedConnectionIneligible` hanya melewati akun karena `rateLimitedUntil` atau model lock). Yang dikoreksi
+   bersama itu: status yang dicatat kini mengikuti sumbu (`providerRefusalStatus`), jadi kontrak kedaluwarsa
+   tercatat 403 dengan kalimat "contract has ended", bukan 429 "too many requests".
 4. **Detail di body 429 akhir**: array `attempts` (§7), supaya klien yang tidak punya akses log server tetap bisa men-debug sendiri.
 
 **D8 — API limit node terpisah dari `PUT /api/provider-nodes/{id}`.**

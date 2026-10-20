@@ -61,9 +61,19 @@ its own allowance never consumes a provider's capacity on the way to being refus
   attempt ends — including on failover — so one slow pass cannot lock a node out
   of the concurrency it was granted.
 - A refusal is a failed candidate: the combo loops try the next one and only the
-  last candidate produces a `429`. It is deliberately NOT a cooldown —
+  last candidate produces an error. It is deliberately NOT a cooldown —
   `RecordConnectionScopedError` records `lastError` for the dashboard while the
   account stays in rotation, because a busy endpoint is not a dead credential.
+- The node-state axes reach that rule by a second road, and it needed closing. A
+  congestion refusal (429) is produced and intercepted inside the failover loop; an
+  expired contract or a spent quota answers 403, and the single-provider loop pins
+  each candidate by id, which skips the selection-time node-state check. The 403 then
+  came back as an upstream error and landed in the generic retryable-status branch
+  that writes the account cooldown — parking a healthy connection for 120 s, on the
+  model and on the account, for a fact about the node. The typed refusal is now
+  intercepted before that branch, so both axes fail over without touching a cooldown.
+  The row it records now also carries the status the client saw (403, with wording
+  about the contract) instead of a hardcoded 429.
 - Debug trail for the provider that was skipped: one structured log line naming
   provider/axis/limit/window count/concurrency/retry-after, the existing
   `router_rate_limit_rejects_total{scope="provider"}` counter, the `lastError` row,

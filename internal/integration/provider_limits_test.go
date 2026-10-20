@@ -5,6 +5,7 @@ package integration
 import (
 	"context"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -121,6 +122,58 @@ func TestProviderNodeContractExpiryIsEnforcedThroughTheRouter(t *testing.T) {
 	}
 	if got := refusalType(t, res); got != "provider_contract_expired" {
 		t.Fatalf("refusal type = %q, want provider_contract_expired (body: %s)", got, truncate(res.Body))
+	}
+	if got := upstream.Count(); got != 0 {
+		t.Fatalf("upstream saw %d requests, want 0", got)
+	}
+}
+
+// A node-state refusal is a fact about the node, not about the credential, so it
+// must not cost the connection a cooldown. The fallback loop pins each candidate
+// before dialling, which skips the selection-time node-state check, so the 403 is
+// produced by the dispatch gate and travels back through the generic
+// retryable-status branch — the one that writes LockConnectionModel and
+// LockConnectionRateLimit. Intercepting the typed refusal before that branch is
+// what keeps a healthy account out of a 120-second corner because an operator's
+// contract lapsed.
+//
+// The two requests matter as much as the row: without the interception the first
+// one parks the account, so the second is no longer refused by the node gate at
+// all. A second 403 with the same type is what proves the account stayed in
+// rotation for the duration of its own node-state problem.
+func TestProviderNodeStateRefusalDoesNotParkTheConnection(t *testing.T) {
+	env := newEnv(t)
+	upstream := env.NewUpstream(t, chatCompletionResponder())
+	seedNaraNode(t, env, upstream, db.ProviderLimits{ContractExpiresAt: "2020-01-01T00:00:00Z"})
+
+	for attempt := 1; attempt <= 2; attempt++ {
+		res := env.Post(t, "/v1/chat/completions", ChatBody("nara/glm-5.3", false))
+		if res.Status != http.StatusForbidden {
+			t.Fatalf("request %d on an expired contract = %d, want 403 (body: %s)", attempt, res.Status, truncate(res.Body))
+		}
+		if got := refusalType(t, res); got != "provider_contract_expired" {
+			t.Fatalf("request %d refusal type = %q, want provider_contract_expired (body: %s)", attempt, got, truncate(res.Body))
+		}
+	}
+
+	stored, err := env.Repo.GetProviderConnectionByID("conn-nara")
+	if err != nil || stored == nil {
+		t.Fatalf("read back conn-nara: %v", err)
+	}
+	// The cooldown lives in the connection's own data blob, which is what the
+	// selector reads, so that is where the absence has to be shown. The lastError
+	// row is expected and wanted: it is the node-health line this feature exists
+	// to show, and it is display-only — pinnedConnectionIneligible skips an account
+	// on rateLimitedUntil and on a model lock, never on that row.
+	for _, forbidden := range []string{`"rateLimitedUntil"`, `"modelLock_`} {
+		if strings.Contains(stored.Data, forbidden) {
+			t.Errorf("connection data carries %s after a node-state refusal: %s", forbidden, stored.Data)
+		}
+	}
+	// And the row must name the status the client saw. A hardcoded 429 here would
+	// put "too many requests" on a node whose real condition is a lapsed contract.
+	if !strings.Contains(stored.Data, `"status":403`) {
+		t.Errorf("lastError does not carry the 403 the client received: %s", stored.Data)
 	}
 	if got := upstream.Count(); got != 0 {
 		t.Fatalf("upstream saw %d requests, want 0", got)
