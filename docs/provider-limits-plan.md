@@ -273,25 +273,47 @@ Tipe khusus: `provider_contract_expired`, `provider_token_quota_exhausted` (kedu
 
 ## 8. UI (as-built)
 
-**Editor limit node** — `web/src/components/connections/NodeLimitsEditor.svelte` (baru), dipasang di dua tempat:
-panel node `ProviderDetailView.svelte` (di bawah tombol Add API Key / Edit / Delete) dan
-`EditCompatibleNodeModal.svelte`. Form mengikuti tata letak `ApiKeyPolicyModal.svelte`: lima input bernomor
-(rpm, tpm, concurrency, queue wait, kuota lifetime) + satu input `type="date"` untuk akhir kontrak, tiap field
-menyertakan hint `0 = tidak dibatasi`, dan blok read-only "Usage" (token terpakai / kuota, RPM di window berjalan,
-concurrency aktif, plus peringatan bila `expired`) bila `limits` dari `GET /api/provider-nodes` ada.
-Tombol **Save limits** hanya memanggil `PUT .../limits` (D8) — tidak mengirim `name`/`prefix` — dan tombol
-**Restart token count** memanggil `POST .../quota/reset`.
+**Editor limit node** — `web/src/components/connections/ProviderNodeLimitsField.svelte` (baru; menggantikan
+`NodeLimitsEditor.svelte`), dipasang **di dalam** `AddCompatibleNodeModal.svelte` dan `EditCompatibleNodeModal.svelte`.
+Bukan kotak terpisah: field-nya memakai `Input` yang sama dengan Name/Prefix/Base URL, dipisahkan satu garis
+(`border-t`) dan dilipat (collapsible) — header berbunyi `Capacity limits` + ringkasan (`Unlimited`,
+`60 rpm · 4 conc · 5M tok · ends 31 Jan 2027`) + chevron. Terbuka sendiri bila node sudah punya limit, tertutup bila
+semuanya kosong; mengetik tidak mengubah keadaan buka/tutup.
+
+Enam field: rpm, tpm, concurrency, queue wait (ms), kuota token lifetime, dan tanggal akhir kontrak (`type="date"`).
+Keenamnya diberi `id` sehingga `<label for>` benar-benar terhubung ke input (sebelumnya `Input` tidak punya `id`,
+jadi label hanya dekorasi — cacat a11y yang ikut diperbaiki di komponen bersama). Teks "0 = tidak dibatasi" ada sekali
+di bawah grid, bukan paragraf per field. Bila node sudah ada, di bawah grid tampil baris read-only pemakaian
+(`620k / 5M tok · 3/60 this minute · 1/4 in flight`) + tombol **Restart token count** (`POST .../quota/reset`).
+
+**Satu tombol simpan.** `EditCompatibleNodeModal` tidak lagi punya tombol limit sendiri: `Save` menulis limit lebih dulu
+(`PUT .../limits` ke id yang masih dipegang), lalu node-nya — karena mengganti URL suffix menamai ulang provider id dan
+rename itu ikut membawa kolom limit. `AddCompatibleNodeModal` mengirim `limits: nodeLimitsPatchOf(draft)` di payload
+create; parent (`ConnectionsView` / `MediaKindView`) membuat node, lalu bila `hasAnyNodeLimitPatch` benar, memanggil
+`PUT .../limits` dengan id hasil create. Dua request itu disengaja: endpoint limit butuh id yang baru ada setelah
+create, dan kegagalan request kedua dilaporkan tanpa membatalkan node yang sudah jadi.
+
+**Halaman provider** — form limit **dihapus** dari `ProviderDetailView.svelte` (0 input limit, 0 tombol limit). Yang
+tersisa satu baris status read-only di kartu detail: `Capacity <ringkasan> · <pemakaian>` plus badge
+`Contract ended` / `Quota spent` bila berlaku. Dengan begitu koneksi kembali terlihat tanpa menggulir, sementara
+operator tetap bisa melihat apakah node sedang dibatasi atau habis.
 
 Tanggal kontrak dikirim sebagai **akhir hari UTC** (`YYYY-MM-DDT23:59:59Z`), bukan tengah malam: operator yang memilih
 2027-01-31 berarti node hidup sepanjang hari itu, sedangkan tengah malam justru mematikannya sejak awal hari yang ia
 pilih (di zona waktu positif: petang sebelumnya). Server menerima RFC3339 apa adanya, jadi normalisasi tanggal
 `YYYY-MM-DD` di server hanya menjadi jaring pengaman untuk klien lain.
 
-**Deviasi dari rencana (dicatat):** paritas editor di `AddCompatibleNodeModal.svelte` **tidak** dibuat. Node belum ada
-saat modal itu dibuka, sedangkan endpoint limit butuh id node (D8); menaruh field di sana berarti field yang tidak bisa
-disimpan sampai node dibuat. Setelah dibuat, panel node langsung menampilkan editor yang sama, jadi operator tidak
-kehilangan langkah — tapi ini keputusan yang perlu Cak Helmi setujui bila paritas tetap diinginkan (jalurnya:
-`onSubmit` mengembalikan id node baru, lalu editor dipanggil sekali setelah create).
+Konversi draft ↔ API (`web/src/lib/node-limits.ts`) diuji 16 kasus `bun test`: teks form → angka, `''`/`0`/negatif/`1.5.2`
+→ 0 (unlimited), tanggal → akhir hari UTC, dan ringkasan. Satu bug nyata tertangkap uji ini: `parseInt('1.5.2')` = 1,
+artinya salah ketik akan membatasi node ke 1 request/menit; diganti `Number()` + `Number.isInteger`.
+
+**Status verifikasi UI:** halaman provider dan modal Edit diverifikasi di browser yang berjalan (0 input limit di
+halaman; section tertutup dengan ringkasan `Unlimited`; `Save` mengirim `PUT .../limits` berisi nilai yang diketik dan
+nilainya terbaca kembali dari API, lalu node dikembalikan ke 0). Jalur **Add** belum berhasil diverifikasi end-to-end
+lewat otomasi browser: klik sintetis pada tombol `Create` tidak memicu handler di sesi headless ini, sedangkan
+klik pada kontrol lain memicu. Yang sudah pasti untuk jalur itu: section tampil dan tertutup di modal Add, dan
+pemasangan dua request-nya bertipe benar (`hasAnyNodeLimitPatch` + patch polos). Perlu satu kali klik manual untuk
+menutup status itu.
 
 **Bulk add models** — `AddCustomModelModal.svelte` mendapat mode `single` | `bulk` lewat dua `Button` (meniru
 `AddConnectionModal.svelte`). Capabilities + token limits tetap di luar kedua mode sehingga berlaku untuk **semua** ID

@@ -13,7 +13,13 @@
     min = '',
     max = '',
     class: klass = '',
-    inputClass = ''
+    inputClass = '',
+    /**
+     * Optional field id. Set it and the label points at the input, so clicking the
+     * label focuses the field and a screen reader announces the pair; without one
+     * the label is decoration.
+     */
+    id = ''
   }: {
     label?: string
     type?: string
@@ -28,12 +34,13 @@
     max?: string
     class?: string
     inputClass?: string
+    id?: string
   } = $props()
 </script>
 
 <div class="flex flex-col gap-1.5 {klass}">
   {#if label}
-    <label class="text-sm font-medium text-text-main">
+    <label class="text-sm font-medium text-text-main" for={id || undefined}>
       {label}
       {#if required}<span class="text-red-500 ml-1">*</span>{/if}
     </label>
@@ -46,6 +53,7 @@
       </div>
     {/if}
     <input
+      id={id || undefined}
       {type}
       {placeholder}
       {disabled}

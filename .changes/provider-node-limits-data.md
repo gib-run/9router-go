@@ -240,9 +240,36 @@ build`, `bun run ratchet:svelte` (0 unresolved, 81 errors = baseline), `bunx
 oxlint --deny-warnings`, 18 parser cases under `bun test`, plus the Go suite and
 the integration suite.
 
-One deviation from the plan, recorded rather than hidden: the editor is **not** in
-`AddCompatibleNodeModal`. The node does not exist while that dialog is open and the
-limits endpoint needs its id, so the fields there could not be saved until after
-creation — where the node page already shows the same editor.
+The editor lives in the node dialogs, and it was moved there on review. The first
+version had it as a bordered card on the provider page, which put six inputs and
+two buttons above the connection list and pushed twelve connections below the
+fold. Now `ProviderNodeLimitsField` sits inside the Add and Edit dialogs as a
+section, separated from Name and Base URL by a rule and collapsed to one header
+line: the same `Input` as the fields above it, no card of its own, and one Save
+instead of two (the Edit dialog writes the policy before the node, because a URL
+suffix change renames the provider id and the rename carries these columns). The
+section opens by itself when a node already has a limit and stays closed for a
+node that has none. The page keeps a single read-only line — `Capacity … ` plus
+`Contract ended` / `Quota spent` when they apply — so the state is still visible
+without turning the page into a form. A new node's policy rides along with the
+create and is written straight after it, since the limits endpoint needs the id
+the create answers with.
+
+Verified in the running dashboard: the page shows no limit inputs and one status
+line, the section opens with `Unlimited` in the Edit dialog, its Save sends
+`PUT …/limits` with the typed value and the listing reports it (the node was
+returned to its original all-zero policy afterwards), and the six fields now carry
+ids so their labels are associated. Gates: `bun run build`, the svelte ratchet at
+its baseline with no unresolved identifiers, `oxlint --deny-warnings`, and 253
+`bun test` cases including 16 new ones for the draft/patch conversions. The Add
+dialog's create-and-then-PUT path is wired and type-checked but not yet confirmed
+by a click in this environment: synthetic clicks on that dialog's Create button
+did not reach its handler in the headless session, while the same technique fired
+other controls, so it needs one manual pass rather than a claim here.
+
+Two defects surfaced on the way and are fixed: a count field parsed with
+`parseInt`, so a typo like `1.5.2` silently pinned a node to one request a minute
+instead of leaving it unlimited, and the shared `Input` had no `id`, so every
+label in the app was decoration rather than a control label.
 Rename this file to `<pr-number>-provider-node-limits-data.md` when the PR is
 opened, so the fragment orders correctly in the dashboard changelog.

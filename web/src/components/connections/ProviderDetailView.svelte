@@ -69,7 +69,8 @@
   import EditConnectionModal, { type ConnectionUpdate } from './EditConnectionModal.svelte'
   import AddConnectionModal from './AddConnectionModal.svelte'
   import AddCustomModelModal from './AddCustomModelModal.svelte'
-  import NodeLimitsEditor from './NodeLimitsEditor.svelte'
+  import { nodeLimitsDraftOf, nodeLimitsSummary, nodeLimitsUsageSummary } from '../../lib/node-limits'
+  import Badge from '../../lib/ui/Badge.svelte'
   import ProviderHeaderOverridesModal from './ProviderHeaderOverridesModal.svelte'
   import EditCompatibleNodeModal from './EditCompatibleNodeModal.svelte'
   import FreebuffSessionBanner from './FreebuffSessionBanner.svelte'
@@ -2853,15 +2854,22 @@
           </button>
         </div>
       </div>
-      <!-- The node's capacity policy, editable in place: an operator tuning a
-           limit is looking at the endpoint it belongs to, not at a dialog. -->
-      <NodeLimitsEditor
-        nodeId={selectedNode.id}
-        limits={selectedNode.limits ?? null}
-        onSaved={(saved) => {
-          selectedNode = { ...selectedNode!, limits: saved }
-        }}
-      />
+      <!-- Status only: the policy is edited in the node's dialog (the same fields as
+           Name and Base URL there), so this line answers "what is this node allowed"
+           without turning the page into a form. -->
+      <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-text-muted">
+        <span class="font-medium text-text-main">Capacity</span>
+        <span class="font-mono">{nodeLimitsSummary(nodeLimitsDraftOf(selectedNode.limits ?? null))}</span>
+        {#if selectedNode.limits}
+          <span class="text-text-subtle">·</span>
+          <span class="font-mono">{nodeLimitsUsageSummary(selectedNode.limits)}</span>
+          {#if selectedNode.limits.expired}
+            <Badge tone="error">Contract ended</Badge>
+          {:else if selectedNode.limits.tokenQuota > 0 && selectedNode.limits.usedTokens >= selectedNode.limits.tokenQuota}
+            <Badge tone="error">Quota spent</Badge>
+          {/if}
+        {/if}
+      </div>
     </div>
   {/if}
 
@@ -4600,6 +4608,9 @@
   isAnthropic={isAnthropicCompatibleNode}
   onClose={() => (showEditNodeModal = false)}
   onSave={handleSaveEditedNode}
+  onLimitsSaved={(limits) => {
+    selectedNode = selectedNode ? { ...selectedNode, limits } : selectedNode
+  }}
 />
 
 <!-- 6. Add Key Connection Modal (for non-oauth providers) -->
