@@ -100,10 +100,13 @@ func TestSaveCustomModelsBatch_AddsNewIdsAndReportsTheRest(t *testing.T) {
 	}
 }
 
-// The batch applies the same name rules a single save does — asked without
-// writing, so a refused line is reported instead of answering the whole paste
-// with one 409.
-func TestSaveCustomModelsBatch_AppliesTheSameNameRulesAsASingleSave(t *testing.T) {
+// The batch asks the same name rules a single save does. For a custom id that
+// means no cross-name-space check at all: the id is addressed as "<prefix>/<id>",
+// so a combo that shares its spelling is a different address rather than a
+// shadowed name (see guardNameCollision). Both callers must accept it — a batch
+// that refused would disagree with the single save a retry uses, which is the
+// drift this pair of assertions exists to catch.
+func TestSaveCustomModelsBatch_MatchesTheSingleSaveOnCustomIds(t *testing.T) {
 	repo, cleanup := setupTestDB(t)
 	defer cleanup()
 	router := setupTestRouter(repo)
@@ -117,29 +120,39 @@ func TestSaveCustomModelsBatch_AppliesTheSameNameRulesAsASingleSave(t *testing.T
 		t.Fatalf("bulk save = %d, want 200 (body: %s)", rec.Code, rec.Body.String())
 	}
 	out := decodeBatch(t, rec)
-	if got := skipCode(out.Skipped, "combo-wombo"); got != "COMBO_NAME_CONFLICT" {
-		t.Errorf("colliding id skipped as %q, want COMBO_NAME_CONFLICT", got)
+	if len(out.Skipped) != 0 {
+		t.Errorf("skipped = %+v, want nothing: a prefixed id cannot shadow a bare name", out.Skipped)
 	}
-	if len(out.Added) != 1 || out.Added[0] != "glm-5.3" {
-		t.Fatalf("added = %v, want the non-colliding id to land anyway", out.Added)
-	}
-
-	scope, err := repo.GetKVScope("customModels")
-	if err != nil {
-		t.Fatalf("GetKVScope: %v", err)
-	}
-	if _, stored := scope["nara|combo-wombo|llm"]; stored {
-		t.Error("the colliding id was stored by the batch path")
+	if len(out.Added) != 2 {
+		t.Fatalf("added = %v, want both ids", out.Added)
 	}
 
-	// One rule, two callers: the single save must refuse the same id.
+	// One rule, two callers: the single save must accept the same id.
 	single := postCustomModels(t, router,
 		`{"providerAlias":"nara","id":"combo-wombo","type":"llm"}`)
-	if single.Code != http.StatusConflict {
-		t.Fatalf("single save of the colliding id = %d, want 409 (body: %s)", single.Code, single.Body.String())
+	if single.Code == http.StatusConflict {
+		t.Fatalf("single save of the same id = 409 (%s), so the batch and the single save disagree",
+			single.Body.String())
 	}
-	if !strings.Contains(single.Body.String(), "COMBO_NAME_CONFLICT") {
-		t.Errorf("single save 409 body = %s, want it to name the same code", single.Body.String())
+}
+
+// A paste can repeat an id, which the single save cannot express: the second line
+// is reported instead of writing the same row twice.
+func TestSaveCustomModelsBatch_ReportsARepeatInsideOnePaste(t *testing.T) {
+	repo, cleanup := setupTestDB(t)
+	defer cleanup()
+	router := setupTestRouter(repo)
+
+	rec := postCustomModels(t, router, `{"providerAlias":"nara","models":["glm-5.3","glm-5.3"]}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("bulk save = %d, want 200 (body: %s)", rec.Code, rec.Body.String())
+	}
+	out := decodeBatch(t, rec)
+	if len(out.Added) != 1 {
+		t.Errorf("added = %v, want the id stored once", out.Added)
+	}
+	if got := skipCode(out.Skipped, "glm-5.3"); got != "DUPLICATE_IN_BATCH" {
+		t.Errorf("repeat skipped as %q, want DUPLICATE_IN_BATCH", got)
 	}
 }
 
