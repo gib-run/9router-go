@@ -3,7 +3,6 @@ package chat
 import (
 	"bytes"
 	"context"
-	json "9router/proxy/internal/fastjson"
 	"errors"
 	"fmt"
 	"io"
@@ -12,13 +11,14 @@ import (
 	"time"
 
 	"9router/proxy/internal/constants"
+	json "9router/proxy/internal/fastjson"
 	"9router/proxy/internal/guardrails"
 	"9router/proxy/internal/handlerutil"
-	"9router/proxy/internal/semanticcache"
 	"9router/proxy/internal/log"
 	"9router/proxy/internal/providers"
 	internalproxy "9router/proxy/internal/proxy"
 	"9router/proxy/internal/proxy/executor"
+	"9router/proxy/internal/semanticcache"
 	"9router/proxy/internal/shutdown"
 	"9router/proxy/internal/translator"
 )
@@ -378,6 +378,10 @@ func (h *ChatHandler) handleJSONResponse(ctx context.Context, w http.ResponseWri
 			return internalproxy.UpstreamFailure(http.StatusBadGateway, internalproxy.NoCompletionInStream)
 		}
 		body = folded
+	}
+
+	if internalproxy.HasZeroContentProbe(ctx) && internalproxy.IsZeroContentResponse(body) {
+		return &internalproxy.ZeroContentError{Body: body}
 	}
 
 	// A 200 that carries no completion (blank body, HTML error page, a

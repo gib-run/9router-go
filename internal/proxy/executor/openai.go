@@ -299,6 +299,10 @@ func jsonResponse(ctx context.Context, w http.ResponseWriter, upstream io.Reader
 		body = folded
 	}
 
+	if proxy.HasZeroContentProbe(ctx) && proxy.IsZeroContentResponse(body) {
+		return &proxy.ZeroContentError{Body: body}
+	}
+
 	// A 200 that carries no completion (blank body, HTML error page, a
 	// `{"error": ...}` envelope, a choice with empty content) reads to every
 	// layer above as a served turn, which both ends combo fallback and
@@ -387,4 +391,3 @@ func sseDataFrames(body []byte) [][]byte {
 	}
 	return frames
 }
-
