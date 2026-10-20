@@ -271,10 +271,15 @@ export function localizePage(node: HTMLElement, locale: Locale) {
           if (added.nodeType === Node.ELEMENT_NODE) localizeTree(added as HTMLElement, currentLocale)
           else if (added.nodeType === Node.TEXT_NODE) {
             const text = added as Text
-            const translated = translateValue(text.data, currentLocale)
+            if (text.parentElement?.closest('code, pre, script, style, textarea, [contenteditable="true"], [data-no-translate], .material-symbols-outlined')) continue
+            const source = text.data
+            const translated = translateValue(source, currentLocale)
             if (translated !== null) {
-              nodeTranslations.set(text, { english: text.data, rendered: translated })
-              text.data = translated
+              const leading = source.match(/^\s*/)?.[0] || ''
+              const trailing = source.match(/\s*$/)?.[0] || ''
+              const rendered = `${leading}${translated}${trailing}`
+              nodeTranslations.set(text, { english: source, rendered })
+              text.data = rendered
             }
           }
         }
