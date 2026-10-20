@@ -34,11 +34,26 @@
   let open = $state(false)
   let resetting = $state(false)
   let resetError = $state('')
+  let confirmingReset = $state(false)
+
+  // Which node the section was last seeded for. A plain variable, not $state: the
+  // effect below writes it, and reading it back as reactive state would retrigger
+  // the effect on its own write.
+  let seededFor: string | null = null
 
   // Seeded from the stored policy, deliberately not from `draft`: a policy that
   // exists opens the section, an unlimited node keeps it closed.
+  //
+  // Seeded once per node, because the provider page re-reads the node list while
+  // this dialog is open and hands down a fresh `limits` object each time. Tracking
+  // that object directly made the section collapse under the operator's hands every
+  // time a poll landed, which reads as the control closing itself.
   $effect(() => {
+    const node = nodeId || 'new-node'
+    if (seededFor === node) return
+    seededFor = node
     open = hasAnyNodeLimit(nodeLimitsDraftOf(usage))
+    confirmingReset = false
   })
 
   async function handleReset() {
@@ -121,9 +136,34 @@
       </p>
 
       {#if usage}
-        <div class="flex flex-wrap items-center justify-between gap-2">
-          <p class="text-xs text-text-muted font-mono">{nodeLimitsUsageSummary(usage)}</p>
-          <Button variant="ghost" size="sm" loading={resetting} onclick={handleReset}>Restart token count</Button>
+        <div class="flex flex-col gap-2 border-t border-border pt-3">
+          <div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+            <span class="text-xs font-medium text-text-main">Token count</span>
+            <span class="text-xs text-text-muted font-mono">{nodeLimitsUsageSummary(usage)}</span>
+          </div>
+          {#if confirmingReset}
+            <p class="text-xs text-text-main">
+              Reset the counter to zero from this moment? The node's usage history is not deleted — the Usage page keeps
+              every request, and only the number this quota is measured against restarts.
+            </p>
+            <div class="flex gap-2">
+              <Button variant="danger" size="sm" loading={resetting} onclick={handleReset}>Yes, reset the count</Button>
+              <Button variant="ghost" size="sm" onclick={() => (confirmingReset = false)}>Cancel</Button>
+            </div>
+          {:else}
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <p class="text-xs text-text-muted">
+                {#if usage.tokenQuota > 0}
+                  Quota counts from the last reset. Restarting it starts a fresh allowance without touching history.
+                {:else}
+                  Set a lifetime quota above, then this counter is what it is measured against.
+                {/if}
+              </p>
+              <Button variant="secondary" size="sm" onclick={() => (confirmingReset = true)} disabled={!nodeId}>
+                Reset token count
+              </Button>
+            </div>
+          {/if}
         </div>
         {#if usage.expired}
           <p class="text-xs text-red-500">The contract has ended, so this node is skipped until the date is moved forward.</p>

@@ -271,5 +271,43 @@ Two defects surfaced on the way and are fixed: a count field parsed with
 `parseInt`, so a typo like `1.5.2` silently pinned a node to one request a minute
 instead of leaving it unlimited, and the shared `Input` had no `id`, so every
 label in the app was decoration rather than a control label.
+
+### fix(dashboard): keep the limits section open, make the counter reset clear, and save limits under the new node id
+
+Three things went wrong once the section was inside a dialog that lives next to a
+polling page.
+
+The section closed itself. Its open state was seeded from the stored policy on
+every change of the `limits` object the page hands down, and the page re-reads the
+node list every ten seconds, so a poll collapsed it under the operator's hands
+mid-edit. It is now seeded once per node id, with the seed kept in a plain
+variable so the effect's own write cannot retrigger it. Measured: open after 23
+seconds, two poll cycles.
+
+The counter reset was a bare button that could be hit by accident and said nothing
+about what it does. It now sits in a `Token count` row next to the live figures,
+explains that the quota counts from the last reset and that usage history is kept,
+and asks for confirmation (`Yes, reset the count` / `Cancel`) instead of acting on
+the first click.
+
+Editing the URL suffix lost the policy. The limits are columns on the node's own
+row, so a rename moves them — but the dialog wrote the policy to the id it was
+still holding, *before* the rename, so the node came back unlimited. The dialog
+now hands the policy to the page in the save payload, and the page writes the node
+first and the limits second, against `res.node.id`. Proof from the running
+dashboard: renaming `dahono` to `dahono-omptest` sent
+`PUT /api/provider-nodes/openai-compatible-chat-dahono` and then
+`PUT /api/provider-nodes/openai-compatible-chat-dahono-omptest/limits` with
+`queueTimeoutMs: 700`, and the renamed node reported 700.
+
+The reason all three hid for so long is one type: Svelte binds
+`<input type="number">` as a number while the seed filled strings, and the
+conversion called `.trim()` on whatever it received. A save with a typed limit
+therefore threw `e.trim is not a function` inside the submit path — no request, no
+message on the Add dialog — which is what the earlier "unverified Add path" note
+in this fragment was actually looking at. The draft and the shared `Input` are now
+typed `string | number`, a regression test pins the numeric case, and the Add path
+is confirmed end-to-end: create, then the limits written to the id it answered
+with.
 Rename this file to `<pr-number>-provider-node-limits-data.md` when the PR is
 opened, so the fragment orders correctly in the dashboard changelog.

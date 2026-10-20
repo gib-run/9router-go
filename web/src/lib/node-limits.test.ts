@@ -47,6 +47,43 @@ describe('nodeLimitsPatchOf', () => {
   })
 })
 
+// Svelte binds `<input type="number">` as a number, so a field the operator types
+// into holds 700 while the seeded same field holds '700'. Converting only strings
+// threw `e.trim is not a function` inside the submit path, so the request never
+// left the browser and every save with a typed limit failed without saying why.
+describe('a draft holding numbers from number inputs', () => {
+  const typed = (): NodeLimitsDraft => ({
+    ...EMPTY_NODE_LIMITS,
+    rpm: 60,
+    tpm: 90000,
+    concurrency: 4,
+    tokenQuota: 5000000,
+    queueTimeoutMs: 15000,
+  })
+
+  it('converts without throwing', () => {
+    assert.deepStrictEqual(nodeLimitsPatchOf(typed()), {
+      rpm: 60,
+      tpm: 90000,
+      concurrency: 4,
+      tokenQuota: 5000000,
+      queueTimeoutMs: 15000,
+      contractExpiresAt: '',
+    })
+  })
+
+  it('summarises and gates the same as the string form', () => {
+    assert.ok(hasAnyNodeLimit(typed()))
+    assert.strictEqual(nodeLimitsSummary(typed()), '60 rpm · 90k tpm · 4 conc · 15000 ms queue · 5M tok')
+  })
+
+  it('treats 0, negatives and fractions as unlimited', () => {
+    assert.strictEqual(nodeLimitsPatchOf({ ...EMPTY_NODE_LIMITS, rpm: 0 }).rpm, 0)
+    assert.strictEqual(nodeLimitsPatchOf({ ...EMPTY_NODE_LIMITS, rpm: -3 }).rpm, 0)
+    assert.strictEqual(nodeLimitsPatchOf({ ...EMPTY_NODE_LIMITS, rpm: 1.5 }).rpm, 0)
+  })
+})
+
 describe('nodeLimitsDraftOf', () => {
   const limits = (overrides: Partial<ProviderNodeLimits> = {}): ProviderNodeLimits => ({
     rpm: 0,

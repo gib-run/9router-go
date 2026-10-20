@@ -303,17 +303,33 @@ Tanggal kontrak dikirim sebagai **akhir hari UTC** (`YYYY-MM-DDT23:59:59Z`), buk
 pilih (di zona waktu positif: petang sebelumnya). Server menerima RFC3339 apa adanya, jadi normalisasi tanggal
 `YYYY-MM-DD` di server hanya menjadi jaring pengaman untuk klien lain.
 
-Konversi draft ↔ API (`web/src/lib/node-limits.ts`) diuji 16 kasus `bun test`: teks form → angka, `''`/`0`/negatif/`1.5.2`
-→ 0 (unlimited), tanggal → akhir hari UTC, dan ringkasan. Satu bug nyata tertangkap uji ini: `parseInt('1.5.2')` = 1,
-artinya salah ketik akan membatasi node ke 1 request/menit; diganti `Number()` + `Number.isInteger`.
+Konversi draft ↔ API (`web/src/lib/node-limits.ts`) diuji 19 kasus `bun test`. Dua bug nyata tertangkap di sini:
+`parseInt('1.5.2')` = 1 (salah ketik membatasi node ke 1 request/menit; diganti `Number()` + `Number.isInteger`), dan
+**tipe draft**. Svelte mengikat `<input type="number">` sebagai **angka**, sementara seed mengisi **string**; `countOf`
+yang hanya menerima string memanggil `text.trim()` pada angka lalu melempar `e.trim is not a function` di dalam jalur
+simpan. Akibatnya: klik Save/Create setelah mengetik limit tidak mengirim apa pun dan tidak menampilkan error — pada
+modal Edit tertangkap `limitsError`, pada modal Add hilang tanpa jejak. Sekarang `NodeLimitsDraft` bertipe
+`string | number` dan `Input.value` juga `string | number` (itu yang sebenarnya dipegang field), plus uji regresi
+untuk draft berisi angka.
 
-**Status verifikasi UI:** halaman provider dan modal Edit diverifikasi di browser yang berjalan (0 input limit di
-halaman; section tertutup dengan ringkasan `Unlimited`; `Save` mengirim `PUT .../limits` berisi nilai yang diketik dan
-nilainya terbaca kembali dari API, lalu node dikembalikan ke 0). Jalur **Add** belum berhasil diverifikasi end-to-end
-lewat otomasi browser: klik sintetis pada tombol `Create` tidak memicu handler di sesi headless ini, sedangkan
-klik pada kontrol lain memicu. Yang sudah pasti untuk jalur itu: section tampil dan tertutup di modal Add, dan
-pemasangan dua request-nya bertipe benar (`hasAnyNodeLimitPatch` + patch polos). Perlu satu kali klik manual untuk
-menutup status itu.
+**Memilih buka/tutup section** — efek yang menyemai `open` dulu membaca prop `usage` setiap kali, sehingga poll daftar
+node (tiap ±10 detik) mengirim objek `limits` baru dan section menutup sendiri di tangan operator. Sekarang disemai
+**sekali per node id** (variabel biasa, bukan `$state`, supaya tulisan efek tidak memicu efek itu sendiri): bertahan
+melewati dua siklus poll, dan tetap menyemai ulang bila operator membuka node lain.
+
+**Rename URL suffix** — kolom limit ada di baris `providerNodes` sendiri, jadi `RenameProviderNode` membawanya saat
+`UPDATE providerNodes SET id = ?`. Yang salah adalah **urutan di klien**: modal menulis limit ke id lama *sebelum*
+rename. Sekarang modal hanya menitipkan patch di payload `onSave`, dan `ProviderDetailView.handleSaveEditedNode`
+menulis node dulu, lalu limit ke `res.node.id` — id yang benar-benar dijawab server. Terbukti di browser: ganti suffix
+`dahono` → `dahono-omptest` menghasilkan `PUT /api/provider-nodes/openai-compatible-chat-dahono` (rename) lalu
+`PUT /api/provider-nodes/openai-compatible-chat-dahono-omptest/limits` berisi `queueTimeoutMs: 700`, dan node hasil
+rename menyimpan 700.
+
+**Status verifikasi UI (semua jalur):** halaman provider tanpa input limit + satu baris status; modal Edit menyemai
+section tertutup dengan `Unlimited`, bertahan terbuka melewati dua poll (±23 detik), `Save` mengirim `PUT .../limits`
+dan nilainya terbaca kembali; rename dengan limit terbukti menulis ke id baru; jalur **Add** terbukti mengirim
+`POST /api/provider-nodes` lalu `PUT .../limits` ke id hasil create dengan nilai yang diketik. Node uji dan limit uji
+dihapus/dinolkankan kembali setelah verifikasi.
 
 **Bulk add models** — `AddCustomModelModal.svelte` mendapat mode `single` | `bulk` lewat dua `Button` (meniru
 `AddConnectionModal.svelte`). Capabilities + token limits tetap di luar kedua mode sehingga berlaku untuk **semua** ID

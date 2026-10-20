@@ -4,7 +4,7 @@
   import Button from '../../lib/ui/Button.svelte'
   import Input from '../../lib/ui/Input.svelte'
   import Modal from '../../lib/ui/Modal.svelte'
-  import { api, type ProviderNode, type ProviderNodeLimits } from '../../api/client'
+  import { api, type ProviderNode, type ProviderNodeLimits, type ProviderNodeLimitsPatch } from '../../api/client'
   import { nodeFormSeed } from './nodeFormSeed'
   import ProviderNodeLimitsField from './ProviderNodeLimitsField.svelte'
   import { nodeLimitsDraftOf, nodeLimitsPatchOf, type NodeLimitsDraft } from '../../lib/node-limits'
@@ -20,8 +20,10 @@
       apiType?: string
       baseUrl: string
       urlSuffix: string
+      /** The policy to store; the parent writes it once the node id is final. */
+      limits: ProviderNodeLimitsPatch
     }) => Promise<void> | void
-    /** Called with the stored policy after a limits save, so the page can update. */
+    /** Called with the stored policy after a token-count reset, so the page updates. */
     onLimitsSaved?: (limits: ProviderNodeLimits) => void
   }
 
@@ -111,22 +113,24 @@
     saving = true
     limitsError = ''
     try {
-      // Limits first, then the node itself: a changed URL suffix renames the
-      // provider id, and the rename carries this node's row — including these
-      // columns — so writing to the id we still hold is the safe order.
-      const saved = await api.setProviderNodeLimits(node!.id, nodeLimitsPatchOf(limitsDraft))
-      onLimitsSaved?.(saved.limits)
       const payload: {
         name: string
         prefix: string
         apiType?: string
         baseUrl: string
         urlSuffix: string
+        limits: ProviderNodeLimitsPatch
       } = {
         name: formName.trim(),
         prefix: formPrefix.trim(),
         baseUrl: formBaseUrl.trim(),
         urlSuffix: formUrlSuffix.trim(),
+        // The policy travels with the node save, and the page writes it *after* the
+        // node: an edited URL suffix renames the provider id, and the limits columns
+        // live on that row. Writing them here, against the id this dialog still
+        // holds, is how an edit would leave the policy on an id that no longer
+        // exists — the node would come back unlimited.
+        limits: nodeLimitsPatchOf(limitsDraft),
       }
       if (!isAnthropic) payload.apiType = formApiType
       await onSave(payload)

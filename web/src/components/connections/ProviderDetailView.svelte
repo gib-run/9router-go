@@ -69,7 +69,8 @@
   import EditConnectionModal, { type ConnectionUpdate } from './EditConnectionModal.svelte'
   import AddConnectionModal from './AddConnectionModal.svelte'
   import AddCustomModelModal from './AddCustomModelModal.svelte'
-  import { nodeLimitsDraftOf, nodeLimitsSummary, nodeLimitsUsageSummary } from '../../lib/node-limits'
+  import { hasAnyNodeLimitPatch, nodeLimitsDraftOf, nodeLimitsSummary, nodeLimitsUsageSummary } from '../../lib/node-limits'
+  import type { ProviderNodeLimitsPatch } from '../../api/client'
   import Badge from '../../lib/ui/Badge.svelte'
   import ProviderHeaderOverridesModal from './ProviderHeaderOverridesModal.svelte'
   import EditCompatibleNodeModal from './EditCompatibleNodeModal.svelte'
@@ -2231,19 +2232,38 @@
     apiType?: string
     baseUrl: string
     urlSuffix: string
+    limits: ProviderNodeLimitsPatch
   }) {
     if (!selectedNode) return
+    const previousId = selectedNode.id
     try {
-      const res = await api.updateProviderNode(selectedNode.id, {
+      const res = await api.updateProviderNode(previousId, {
         name: data.name,
         prefix: data.prefix,
         ...(selectedNode.type === 'openai-compatible' && data.apiType ? { apiType: data.apiType } : {}),
         baseUrl: data.baseUrl,
         urlSuffix: data.urlSuffix || undefined
       })
+      // The id the server answered with, which differs from the one we sent when the
+      // URL suffix changed. The policy is written against that id: the limits columns
+      // live on the node's own row, so an edited suffix moves them, and a write aimed
+      // at the old id would leave the node looking unlimited.
+      const savedId = res?.node?.id || previousId
+      if (hasAnyNodeLimitPatch(data.limits)) {
+        try {
+          const saved = await api.setProviderNodeLimits(savedId, data.limits)
+          selectedNode = { ...selectedNode, id: savedId, limits: saved.limits }
+        } catch (err) {
+          alert(
+            `Provider node saved, but its capacity limits did not: ${err instanceof Error ? err.message : String(err)}`,
+          )
+        }
+      } else {
+        selectedNode = { ...selectedNode, id: savedId }
+      }
       showEditNodeModal = false
-      if (res?.node?.id && res.node.id !== selectedNode.id) {
-        onSelectProvider?.(res.node.id)
+      if (savedId !== previousId) {
+        onSelectProvider?.(savedId)
       }
       onRefresh()
     } catch (err) {

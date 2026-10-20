@@ -24,7 +24,12 @@
     label?: string
     type?: string
     placeholder?: string
-    value?: string
+    /**
+     * The field's value. A number is legitimate: Svelte binds `<input
+     * type="number">` as a number, so declaring only `string` described the seed
+     * and not what the field actually holds after a keystroke.
+     */
+    value?: string | number
     error?: string
     hint?: string
     icon?: string

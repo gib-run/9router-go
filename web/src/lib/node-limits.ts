@@ -6,13 +6,22 @@
 // path, the edit path and the summary cannot disagree about what a draft means.
 import type { ProviderNodeLimits, ProviderNodeLimitsPatch } from '../api/client'
 
-/** A limits form state: text fields, plus the contract date as `YYYY-MM-DD`. */
+/**
+ * A limits form state: the count fields, plus the contract date as `YYYY-MM-DD`.
+ *
+ * The counts are `string | number` on purpose. Svelte binds `<input type="number">`
+ * as a number, so a field the operator types into holds 700 while the same field
+ * the seed filled holds '700'. Declaring only one shape would be a lie the compiler
+ * cannot catch at the boundary and the runtime catches as `e.trim is not a function`
+ * — which is exactly how this feature first failed: every save with a typed limit
+ * threw, the request never left, and the dialog closed showing nothing.
+ */
 export interface NodeLimitsDraft {
-  rpm: string
-  tpm: string
-  concurrency: string
-  tokenQuota: string
-  queueTimeoutMs: string
+  rpm: string | number
+  tpm: string | number
+  concurrency: string | number
+  tokenQuota: string | number
+  queueTimeoutMs: string | number
   contractExpiresAt: string
 }
 
@@ -134,8 +143,11 @@ export function nodeLimitsUsageSummary(limits: ProviderNodeLimits): string {
 // unlimited. Number() rather than parseInt(), because parseInt('1.5.2') reads 1 —
 // a typo would quietly throttle the node to one request a minute instead of
 // leaving it unlimited.
-function countOf(text: string): number {
-  const value = Number(text.trim())
+//
+// Both shapes are accepted because both reach here: a number from an
+// `<input type="number">` binding and a string from the seed or a cleared field.
+function countOf(field: string | number): number {
+  const value = typeof field === 'number' ? field : Number(field.trim())
   return Number.isInteger(value) && value > 0 ? value : 0
 }
 
