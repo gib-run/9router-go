@@ -331,9 +331,18 @@ dan nilainya terbaca kembali; rename dengan limit terbukti menulis ke id baru; j
 `POST /api/provider-nodes` lalu `PUT .../limits` ke id hasil create dengan nilai yang diketik. Node uji dan limit uji
 dihapus/dinolkankan kembali setelah verifikasi.
 
-**Bulk add models** — `AddCustomModelModal.svelte` mendapat mode `single` | `bulk` lewat dua `Button` (meniru
-`AddConnectionModal.svelte`). Capabilities + token limits tetap di luar kedua mode sehingga berlaku untuk **semua** ID
-di batch (D10), dan footer berubah menjadi `Add N Models`.
+**Bulk add models** — tidak ada mode. Satu field `Model ID` menerima satu id **atau** tempelan daftar: isinya
+di-parse (`parseModelIds`), dan bentuknya yang menentukan jalur. Satu id bersih → jalur simpan tunggal (bisa diuji
+dulu ke provider); lebih dari satu, atau ada baris yang ditolak → satu `POST /api/models/custom` berisi array, lalu
+UI melaporkan berapa yang masuk dan alasan tiap baris yang ditolak. Pratinjau muncul sebelum menyimpan
+(`3 ids to add · 1 repeated · 1 rejected`).
+
+Versi pertama memakai tombol `Single` | `Bulk Add` dengan default `Single`, dan itu keliru: operator yang menempel
+`model1 model2:free model3-ext` ke field default menyimpan **satu** model yang id-nya berisi spasi — baris yang tidak
+bisa dialamatkan tanpa mereproduksi spasinya persis. Dua perbaikan menyertainya: `ProviderDetailView` punya field
+`Model ID` inline sendiri (jalur yang dipakai sehari-hari) dan sekarang mem-parse dengan aturan yang sama; dan server
+menolak id yang masih mengandung spasi/koma/titik koma (`INVALID_ID`, 400) supaya klien lain tidak bisa menyimpan
+baris yang sama.
 
 `web/src/lib/bulk-models.ts` (baru, murni, 18 test table-driven di `bulk-models.test.ts`):
 ```ts

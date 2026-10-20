@@ -309,5 +309,31 @@ in this fragment was actually looking at. The draft and the shared `Input` are n
 typed `string | number`, a regression test pins the numeric case, and the Add path
 is confirmed end-to-end: create, then the limits written to the id it answered
 with.
-Rename this file to `<pr-number>-provider-node-limits-data.md` when the PR is
-opened, so the fragment orders correctly in the dashboard changelog.
+
+### fix(dashboard): split a pasted list of model ids instead of saving it as one id
+
+The bulk paste was behind a `Single | Bulk Add` switch that defaulted to Single, and
+the field an operator actually uses — the inline `Model ID` input on a compatible
+provider's page — had no bulk path at all. Pasting `model1 model2:free model3-ext`,
+or the same list with commas or semicolons, therefore stored one model whose id was
+that whole string: a row nothing can address without reproducing the spaces exactly.
+
+There is no mode now. One field takes one id or a pasted list, the paste is parsed,
+and its shape decides what happens: a single clean id keeps the single-save path (so
+it can be tested against the provider first), while more than one — or a line the
+paste half-failed on — becomes a single `POST /api/models/custom` carrying an array,
+with the response saying which lines landed and why the others did not. Both fields
+preview the split before writing (`3 ids to add · 1 repeated · 1 rejected`).
+
+The server enforces the same rule, because the dashboard is not the only client: an
+id that still contains a space, comma, semicolon or tab is refused with a typed
+`INVALID_ID` 400 on the single save and reported as a skipped line in a batch, with
+the reason written for the person who pasted it.
+
+Verified in the running dashboard: all three separator shapes preview `3 ids to add`,
+and saving one sends one request whose body lists three ids; the three rows appear
+under the node and were deleted afterwards. A single save carrying the unsplit string
+answers `400 INVALID_ID`. Gates: `go build`, the dashboard and db suites, `bun run
+build`, the svelte ratchet at baseline, `oxlint --deny-warnings`, 450 `bun test`
+cases including a new table for the id guard.
+

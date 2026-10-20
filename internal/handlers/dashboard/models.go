@@ -89,6 +89,14 @@ func (h *DashboardHandler) HandleSaveCustomModel(w http.ResponseWriter, r *http.
 			modelID = key
 		}
 	}
+	if reason := invalidModelIDReason(modelID); reason != "" {
+		handlerutil.WriteJSON(w, http.StatusBadRequest, map[string]any{
+			"error": reason,
+			"code":  "INVALID_ID",
+			"id":    modelID,
+		})
+		return
+	}
 	if h.guardNameCollision(w, nsCustomModel, modelID) {
 		return
 	}

@@ -29,6 +29,7 @@
   } from '../../lib/oauth-handoff'
   import { getModelsByProviderId, PROVIDER_ID_TO_ALIAS } from '../../lib/models'
   import { copyToClipboard } from '../../lib/clipboard'
+  import { parseModelIds } from '../../lib/bulk-models'
   import {
     importCustomModelsBestEffort,
     notifyCustomModelsChanged,
@@ -2289,9 +2290,46 @@
     }
   }
 
+  // The Model ID field above is where an operator actually pastes a provider's model
+  // list, so it takes one id or a whole list. Splitting happens on the same separators
+  // the Add Model dialog uses (spaces, commas, semicolons, newlines), because "paste
+  // three ids and get one model whose id contains the spaces" is what this field did
+  // before — a row nothing can address without reproducing them exactly.
+  let newCompatibleModelsPlan = $derived(parseModelIds(newCompatibleModel, storageAlias))
+
   async function handleAddCompatibleModel() {
-    const modelId = newCompatibleModel.trim()
-    if (!modelId || isAddingCompatibleModel) return
+    const plan = parseModelIds(newCompatibleModel.trim(), storageAlias)
+    if (plan.ids.length === 0 || isAddingCompatibleModel) return
+    if (plan.ids.length === 1) {
+      await addOneCompatibleModel(plan.ids[0])
+      return
+    }
+    isAddingCompatibleModel = true
+    try {
+      // One request for the list, so a refused line cannot stop the ones after it, and
+      // the response says which lines landed instead of leaving it to the refresh.
+      const out = await api.saveCustomModelsBulk({
+        providerAlias: storageAlias,
+        models: plan.ids.map((id) => ({ id, type: 'llm' })),
+      })
+      newCompatibleModel = ''
+      await refreshCompatibleModels()
+      notifyCustomModelsChanged()
+      if (out.skipped.length > 0) {
+        alert(
+          `Added ${out.added.length} of ${plan.ids.length}.\n\nNot added:\n` +
+            out.skipped.map((skip) => `${skip.id} — ${skip.reason}`).join('\n'),
+        )
+      }
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to add models')
+      console.error('Error adding models:', err)
+    } finally {
+      isAddingCompatibleModel = false
+    }
+  }
+
+  async function addOneCompatibleModel(modelId: string) {
     if (compatibleRows.some((r) => r.id === modelId)) {
       alert('Model already exists for this provider.')
       return
@@ -2307,8 +2345,8 @@
       await refreshCompatibleModels()
       notifyCustomModelsChanged()
     } catch (err) {
-      // A refusal (the id already addresses a combo or a model alias) has to
-      // reach the user, like the other import paths on this page.
+      // A refusal (the id cannot be an address, or it already means something else) has
+      // to reach the user, like the other import paths on this page.
       alert(err instanceof Error ? err.message : 'Failed to add model')
       console.error('Error adding model:', err)
     } finally {
@@ -3628,9 +3666,20 @@
             type="text"
             bind:value={newCompatibleModel}
             onkeydown={(e) => { if (e.key === 'Enter') handleAddCompatibleModel() }}
-            placeholder={isAnthropicCompatibleNode ? 'claude-3-opus-20240229' : 'gpt-4o'}
+            placeholder={isAnthropicCompatibleNode ? 'claude-3-opus-20240229' : 'gpt-4o — paste a list for several'}
             class="w-full px-3 py-2 text-sm border border-border rounded-lg bg-background focus:outline-none focus:border-primary"
           />
+          {#if newCompatibleModelsPlan.ids.length > 1 || newCompatibleModelsPlan.invalid.length > 0}
+            <p class="text-xs text-text-muted mt-1">
+              {newCompatibleModelsPlan.ids.length} id{newCompatibleModelsPlan.ids.length === 1 ? '' : 's'} to add
+              {#if newCompatibleModelsPlan.duplicates.length > 0}
+                · {newCompatibleModelsPlan.duplicates.length} repeated
+              {/if}
+              {#if newCompatibleModelsPlan.invalid.length > 0}
+                · {newCompatibleModelsPlan.invalid.length} rejected (no slash, pipe or quotes in an id)
+              {/if}
+            </p>
+          {/if}
         </div>
         <button
           type="button"

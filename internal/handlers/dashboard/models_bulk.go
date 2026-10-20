@@ -89,6 +89,12 @@ func (h *DashboardHandler) saveCustomModelsBatch(w http.ResponseWriter, r *http.
 			skipped = append(skipped, customModelBatchSkip{ID: entry.ID, Reason: "empty id", Code: "EMPTY_ID"})
 			continue
 		}
+		// An id that still carries a separator is a line that was never split. Storing it
+		// would create a model addressable only by reproducing the spaces exactly.
+		if reason := invalidModelIDReason(modelID); reason != "" {
+			skipped = append(skipped, customModelBatchSkip{ID: modelID, Reason: reason, Code: "INVALID_ID"})
+			continue
+		}
 		modelType := strings.TrimSpace(entry.Type)
 		if modelType == "" {
 			modelType = batchType
