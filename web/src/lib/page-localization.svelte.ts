@@ -234,7 +234,7 @@ function localizeTree(root: HTMLElement, locale: Locale) {
   }
 
   for (const element of [root, ...Array.from(root.querySelectorAll<HTMLElement>('*'))]) {
-    if (element.matches('input, textarea, [contenteditable="true"], [data-no-translate]')) continue
+    if (element.matches('[contenteditable="true"], [data-no-translate]')) continue
     let saved = attributeTranslations.get(element)
     for (const attribute of translatedAttributes) {
       if (!element.hasAttribute(attribute)) continue
