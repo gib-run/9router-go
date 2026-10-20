@@ -4,3 +4,4 @@
 - Add white-label settings for the product name and logo.
 - Add a system overview dashboard with separate service and VPS CPU/RAM metrics.
 - Show root-volume disk capacity, used space, and available space; use distinct, color-coded navigation and dashboard icons.
+- Localize common dashboard, endpoint, provider, combo, usage, CLI, media, proxy, security, and settings interface text in Portuguese while preserving user-provided content.

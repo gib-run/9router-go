@@ -42,7 +42,8 @@
   import { isNavHidden, normalizeHiddenNav } from './lib/nav'
   import { setHiddenNavEntries } from './lib/navVisibility.svelte'
   import { setDisplayCurrency } from './lib/currency.svelte'
-  import { initializeLocale } from './lib/locale.svelte'
+  import { initializeLocale, language } from './lib/locale.svelte'
+  import { localizePage } from './lib/page-localization.svelte'
 
   let activeTab = $state<ActiveTab>(
     typeof window !== 'undefined' ? pathToTab(window.location.pathname) : 'dashboard'
@@ -302,22 +303,24 @@
 {#if isOAuthCallback}
   <OAuthCallbackView />
 {:else if isAuthChecking}
-  <div class="min-h-screen flex items-center justify-center bg-bg p-4">
+  <div class="min-h-screen flex items-center justify-center bg-bg p-4" use:localizePage={language.current}>
     <div class="text-center">
       <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
       <p class="text-text-muted mt-4">Loading...</p>
     </div>
   </div>
 {:else if (requireLogin && !isAuthenticatedState) || activeTab === 'login'}
-  <LoginView
-    onSuccess={() => {
-      isAuthenticatedState = true
-      loadData()
-      if (activeTab === 'login') {
-        navigate('dashboard')
-      }
-    }}
-  />
+  <div class="contents" use:localizePage={language.current}>
+    <LoginView
+      onSuccess={() => {
+        isAuthenticatedState = true
+        loadData()
+        if (activeTab === 'login') {
+          navigate('dashboard')
+        }
+      }}
+    />
+  </div>
 {:else}
   <div class="flex h-screen w-full overflow-hidden bg-bg text-text-main font-body transition-colors duration-300">
     <Toasts />
@@ -368,20 +371,22 @@
       <!-- Faint grid background (upstream landing-grid) -->
       <div class="landing-grid absolute inset-0 pointer-events-none -z-10" aria-hidden="true"></div>
 
-      <TopBar
-        {activeTab}
-        pageTitle={pageMeta[activeTab]?.title}
-        pageDescription={pageMeta[activeTab]?.description}
-        selectedProvider={selectedProviderMeta}
-        onBackToProviders={() => navigate('connections', false, null)}
-        onMenuClick={() => (isMobileMenuOpen = !isMobileMenuOpen)}
-        onLogout={() => {
-          isAuthenticatedState = false
-          navigate('login')
-        }}
-      />
+      <div class="contents" use:localizePage={language.current}>
+        <TopBar
+          {activeTab}
+          pageTitle={pageMeta[activeTab]?.title}
+          pageDescription={pageMeta[activeTab]?.description}
+          selectedProvider={selectedProviderMeta}
+          onBackToProviders={() => navigate('connections', false, null)}
+          onMenuClick={() => (isMobileMenuOpen = !isMobileMenuOpen)}
+          onLogout={() => {
+            isAuthenticatedState = false
+            navigate('login')
+          }}
+        />
+      </div>
 
-      <main class="flex-1 overflow-y-auto custom-scrollbar p-6 lg:p-10">
+      <main class="flex-1 overflow-y-auto custom-scrollbar p-6 lg:p-10" use:localizePage={language.current}>
         <div class="max-w-7xl mx-auto">
           {#if isLoading}
             <div class="flex flex-col items-center justify-center h-[70vh] gap-3 text-text-muted">
