@@ -176,3 +176,11 @@ Upstream parity: `decolua/9router#381` is the combo flow card; the header change
 follows the house strip in `RequestDetailsTab.svelte`. No API, schema or `/v1`
 behaviour is touched; the only backend change is the additive `since` filter on
 the request-detail query.
+- **The trend's metric switch moved into the panel header.** Costs / Tokens sat
+  inside the chart card, so the panel header named a chart it no longer described.
+  The switch is beside the chevron now, and the header label follows it and the
+  window: `Tokens per hour, stacked by model family.` / `Estimated cost per day,
+  stacked by model family.` `viewMode` and the hourly fact are bindable props on
+  `UsageChart`, so the label and the chart cannot disagree. Verified in the
+  browser: Costs → cost label + active button, Tokens → token label, Last 7 days
+  → "per day", Last 24 hours → "per hour".
