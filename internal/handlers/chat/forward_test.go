@@ -358,5 +358,3 @@ func TestHandleStreamResponse_ActivePauseExceedsCompletionBound(t *testing.T) {
 		t.Errorf("expected response.completed in response: %s", out)
 	}
 }
-
-
