@@ -216,6 +216,11 @@ func HandleUsageStats(repo *db.Repo) http.HandlerFunc {
 				if k.Name == nil || *k.Name == "" {
 					continue
 				}
+				trimmed := strings.TrimSpace(k.Key)
+				if trimmed != "" {
+					keyNames[trimmed] = *k.Name
+					keyNames[handlerutil.MaskAPIKey(trimmed)] = *k.Name
+				}
 				keyNames[k.Key] = *k.Name
 				keyNames[handlerutil.MaskAPIKey(k.Key)] = *k.Name
 			}
@@ -227,22 +232,36 @@ func HandleUsageStats(repo *db.Repo) http.HandlerFunc {
 		// mask collapsed a whole team key set into a single row and attributed
 		// one key's usage to another (upstream v0.5.91, same class of fix).
 		addAPIKeyUsage := func(apiKey, rawModel, provider, providerDisplay, timestamp string, requests int, promptTok, complTok, cachedTok int64, cost float64) {
-			if apiKey == "" || apiKey == "***" {
+			trimmed := strings.TrimSpace(apiKey)
+			if trimmed == "" || trimmed == "***" {
 				apiKey = "local-no-key"
+				trimmed = "local-no-key"
 			}
 			bucketKey := apiKey + "|" + rawModel + "|" + provider
 			cur := resp.ByApiKey[bucketKey]
 			cur.RawModel = rawModel
 			cur.Provider = providerDisplay
-			cur.ApiKeyMasked = apiKey
+			masked := apiKey
+			if masked != "local-no-key" {
+				if m := handlerutil.MaskAPIKey(apiKey); m != "" && m != "***" {
+					masked = m
+				}
+			}
+			cur.ApiKeyMasked = masked
 			cur.ApiKeyKey = apiKey
 			switch {
+			case keyNames[trimmed] != "":
+				cur.KeyName = keyNames[trimmed]
 			case keyNames[apiKey] != "":
 				cur.KeyName = keyNames[apiKey]
-			case apiKey == "local-no-key":
+			case trimmed == "local-no-key":
 				cur.KeyName = "Local (No Key)"
 			default:
-				cur.KeyName = apiKey[:min(8, len(apiKey))] + "..."
+				if masked != "local-no-key" && masked != "***" {
+					cur.KeyName = masked
+				} else {
+					cur.KeyName = trimmed[:min(8, len(trimmed))] + "..."
+				}
 			}
 			cur.Requests += requests
 			cur.PromptTokens += promptTok
@@ -449,14 +468,15 @@ func HandleUsageStats(repo *db.Repo) http.HandlerFunc {
 		var dedupedRecent []usagetracker.RecentRequest
 		seen := make(map[string]bool)
 		for _, rh := range recentHistory {
-			if rh.PromptTokens == 0 && rh.CompletionTokens == 0 {
+			promptTok, complTok := translator.ResolveTokensCounts([]byte(rh.Tokens), rh.PromptTokens, rh.CompletionTokens)
+			if promptTok == 0 && complTok == 0 {
 				continue
 			}
 			min := ""
 			if len(rh.Timestamp) >= 16 {
 				min = rh.Timestamp[:16]
 			}
-			k := rh.Model + "|" + rh.Provider + "|" + strconv.Itoa(rh.PromptTokens) + "|" + strconv.Itoa(rh.CompletionTokens) + "|" + min
+			k := rh.Model + "|" + rh.Provider + "|" + strconv.FormatInt(promptTok, 10) + "|" + strconv.FormatInt(complTok, 10) + "|" + min
 			if seen[k] {
 				continue
 			}
@@ -472,8 +492,8 @@ func HandleUsageStats(repo *db.Repo) http.HandlerFunc {
 				Timestamp:        rh.Timestamp,
 				Model:            rh.Model,
 				Provider:         rh.Provider,
-				PromptTokens:     rh.PromptTokens,
-				CompletionTokens: rh.CompletionTokens,
+				PromptTokens:     int(promptTok),
+				CompletionTokens: int(complTok),
 				CachedTokens:     cachedTok,
 				Status:           status,
 			})

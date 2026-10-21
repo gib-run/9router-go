@@ -3,10 +3,12 @@ package handlers
 import (
 	"fmt"
 	"maps"
+	"strings"
 	"sync"
 	"time"
 
 	"9router/proxy/internal/db"
+	"9router/proxy/internal/handlerutil"
 	"9router/proxy/internal/translator"
 )
 
@@ -199,8 +201,7 @@ func apiKeyBucketKey(apiKey string) string {
 // would drift the cost total in its last digits — a parity break users would
 // read as a billing error.
 func (a *rawAggregate) foldRow(row db.UsageHistoryRow) {
-	promptTok := int64(row.PromptTokens)
-	complTok := int64(row.CompletionTokens)
+	promptTok, complTok := translator.ResolveTokensCounts([]byte(row.Tokens), row.PromptTokens, row.CompletionTokens)
 	cachedTok := int64(translator.CachedTokensFromJSON([]byte(row.Tokens)))
 
 	if row.Provider != "" {
@@ -252,8 +253,7 @@ func (a *rawAggregate) foldRow(row db.UsageHistoryRow) {
 // the order they were added, which keeps the float sum from drifting further
 // than the fold did.
 func (a *rawAggregate) unfoldRow(row db.UsageHistoryRow) {
-	promptTok := int64(row.PromptTokens)
-	complTok := int64(row.CompletionTokens)
+	promptTok, complTok := translator.ResolveTokensCounts([]byte(row.Tokens), row.PromptTokens, row.CompletionTokens)
 	cachedTok := int64(translator.CachedTokensFromJSON([]byte(row.Tokens)))
 
 	if row.Provider != "" {
@@ -559,13 +559,19 @@ func friendlyAccountName(connectionID string, connMap map[string]string) string 
 // indexes both the stored key and its mask, because the shared database holds
 // rows written by both this build and the Next.js dashboard.
 func apiKeyDisplayName(storedKey string, keyNames map[string]string) string {
+	trimmed := strings.TrimSpace(storedKey)
 	switch {
+	case keyNames[trimmed] != "":
+		return keyNames[trimmed]
 	case keyNames[storedKey] != "":
 		return keyNames[storedKey]
-	case storedKey == "local-no-key":
+	case trimmed == "local-no-key" || trimmed == "" || trimmed == "***":
 		return "Local (No Key)"
 	default:
-		return storedKey[:min(8, len(storedKey))] + "..."
+		if masked := handlerutil.MaskAPIKey(trimmed); masked != "" && masked != "***" {
+			return masked
+		}
+		return trimmed[:min(8, len(trimmed))] + "..."
 	}
 }
 
@@ -619,7 +625,13 @@ func applyRawAggregate(resp *UsageStatsResponse, agg *rawAggregate, nodeNameMap,
 		k := resp.ByApiKey[key]
 		k.RawModel = meta.rawModel
 		k.Provider = displayProviderName(meta.provider, nodeNameMap)
-		k.ApiKeyMasked = meta.apiKey
+		masked := meta.apiKey
+		if masked != "local-no-key" {
+			if m := handlerutil.MaskAPIKey(meta.apiKey); m != "" && m != "***" {
+				masked = m
+			}
+		}
+		k.ApiKeyMasked = masked
 		k.ApiKeyKey = meta.apiKey
 		k.KeyName = apiKeyDisplayName(meta.apiKey, keyNames)
 		k.Requests = t.requests
