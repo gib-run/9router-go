@@ -599,7 +599,9 @@ func (h *ChatHandler) tryForwardWithConnection(f forwardRequestParams) error {
 			}
 			pipedBody = thinking.ApplyJSON(pipedBody, target, provider, wireModel, thinkingIntent)
 			if !isAnthropic && !providerCfg.IsGeminiNative() {
-				pipedBody = translator.FilterToOpenAIFormatJSON(pipedBody)
+				pipedBody = translator.FilterToOpenAIFormatJSON(pipedBody, translator.FilterOptions{
+					PreserveCacheControl: providers.PreservesCacheControl(provider),
+				})
 			}
 		}
 	}
