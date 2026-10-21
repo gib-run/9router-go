@@ -33,6 +33,3 @@ Evidence: `internal/handlers/dashboard/provider_nodes_g23b_test.go` and
 control — it requires a visible no-auth provider to be present — because an
 earlier version asserted an absence under a listing mode that never reaches the
 publishing pass, and so passed for the wrong reason.
-
-> Rename this fragment to `<pr-number>-hidden-provider-catalog.md` once a PR
-> number exists. It carries a local slug because no PR has been opened.
