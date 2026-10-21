@@ -3,13 +3,44 @@ package translator
 import (
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
+
+	"9router/proxy/internal/db"
+	"9router/proxy/internal/log"
 )
 
 const (
 	maxMemorySignatures = 2000
 	memoryTTL           = time.Hour
+
+	// persistentTTL is how long an entry survives in SQLite. It is longer than
+	// memoryTTL on purpose: memory is the hot path and can afford to forget,
+	// while the disk tier exists to answer after a restart, so it has to
+	// outlive the session that wrote it. The discovery doc's L2 contract is
+	// 7 days.
+	persistentTTL = 7 * 24 * time.Hour
+
+	// maxPersistentSignatures mirrors the L2 capacity ceiling. Pruning only by
+	// expiry let the table grow for as long as rows kept arriving, which on a
+	// long-lived gateway with a tool-heavy client is unbounded.
+	maxPersistentSignatures = 10000
+
+	// writeQueueDepth absorbs a burst of tool calls without blocking the
+	// request that produced them (discovery doc §3.2).
+	writeQueueDepth = 1024
 )
+
+// asyncWriteTask is one row for the background writer. A nil key is a barrier:
+// it writes nothing and closes done once every task queued before it has
+// landed, which is how a test observes the writer without a sleep.
+type asyncWriteTask struct {
+	key       string
+	signature string
+	family    string
+	expiresAt time.Time
+	done      chan struct{}
+}
 
 type signatureEntry struct {
 	signature string
@@ -41,11 +72,215 @@ type thoughtSignatureStore struct {
 	mu      sync.RWMutex
 	entries map[string]signatureEntry
 	order   []string // FIFO / LRU approximation
+
+	// persist is the optional backing store. Nil keeps the historical
+	// process-local behaviour; the gateway attaches the SQLite repo at boot.
+	// All persistence calls are fail-open: a dead database must never turn a
+	// translation into an error.
+	persist thoughtSignaturePersister
+	// pruneStop is closed to stop the expiry-pruning goroutine.
+	pruneStop chan struct{}
+
+	// writeQueue is the bounded async write path. Persisting inline put a
+	// SQLite round-trip on the request that produced each signature, so a
+	// burst of tool calls serialised on the database's write lock in the
+	// middle of a live turn.
+	writeQueue chan asyncWriteTask
+	// writerStop ends the background writer; nil when it never started.
+	writerStop chan struct{}
+	// writerDone closes when the writer has drained and exited, so swapping
+	// the backing store waits for the old queue instead of racing it (§3.4).
+	writerDone chan struct{}
+	// dropped counts writes refused because the queue was full. Fail-open:
+	// L1 already holds the entry, so the live session is unaffected and only
+	// restart recovery loses it.
+	dropped atomic.Uint64
 }
 
 var globalThoughtSigStore = &thoughtSignatureStore{
 	entries: make(map[string]signatureEntry),
 	order:   make([]string, 0, maxMemorySignatures),
+}
+
+// thoughtSignaturePersister is the persistence seam. *db.Repo satisfies it; a
+// nil value (or a nil interface) means "memory only".
+type thoughtSignaturePersister interface {
+	SaveThoughtSignature(key, signature, family string, expiresAt time.Time) error
+	GetThoughtSignature(key string) (*db.ThoughtSignatureRow, error)
+	LoadThoughtSignatures(limit int) ([]db.ThoughtSignatureRow, error)
+	PruneThoughtSignatures(now time.Time) (int64, error)
+	TrimThoughtSignatures(keep int) (int64, error)
+}
+
+// SetThoughtSignaturePersistence attaches a backing store and hydrates the
+// in-memory map from it, so a Get after restart answers without touching disk.
+// Passing nil detaches persistence and clears memory (tests simulate a restart
+// by calling this). Safe to call more than once; the previous pruner stops.
+//
+// Fail-open: a hydrate or prune error is logged and ignored — the gateway keeps
+// serving from memory exactly as it did before persistence existed.
+func SetThoughtSignaturePersistence(p thoughtSignaturePersister) {
+	store := globalThoughtSigStore
+
+	store.mu.Lock()
+	if store.pruneStop != nil {
+		close(store.pruneStop)
+		store.pruneStop = nil
+	}
+	if store.writerStop != nil {
+		close(store.writerStop)
+		store.writerStop = nil
+	}
+	prevDone := store.writerDone
+	store.writerDone = nil
+	store.writeQueue = nil
+	store.persist = p
+	clear(store.entries)
+	store.order = store.order[:0]
+	store.mu.Unlock()
+
+	// Wait for the previous writer's queue to drain before the new one starts:
+	// otherwise a task still sitting in the old queue would be written by the
+	// old persister after the swap, and a test that closes the database would
+	// see a write land on a closed handle.
+	if prevDone != nil {
+		<-prevDone
+	}
+
+	if p == nil {
+		return
+	}
+
+	// A hydrate failure is not a reason to give up on the pruner. persist is
+	// already attached, so writes still land in SQLite; returning here used to
+	// leave those rows with no pruner for the life of the process, and the
+	// table grew without bound after a single transient read error.
+	if rows, err := p.LoadThoughtSignatures(maxMemorySignatures); err != nil {
+		log.Warn("translator", "thought signature hydration skipped", "error", err)
+	} else {
+		now := time.Now()
+		store.mu.Lock()
+		for _, row := range rows {
+			if !now.Before(row.ExpiresAt) {
+				continue
+			}
+			store.entries[row.Key] = signatureEntry{
+				signature: row.Signature,
+				family:    row.Family,
+				expiresAt: row.ExpiresAt,
+			}
+			store.order = append(store.order, row.Key)
+		}
+		store.mu.Unlock()
+	}
+
+	stop := make(chan struct{})
+	queue := make(chan asyncWriteTask, writeQueueDepth)
+	wstop := make(chan struct{})
+	wdone := make(chan struct{})
+	store.mu.Lock()
+	store.pruneStop = stop
+	store.writeQueue = queue
+	store.writerStop = wstop
+	store.writerDone = wdone
+	store.mu.Unlock()
+	go store.pruneLoop(p, stop)
+	go func() {
+		defer close(wdone)
+		store.writeLoop(p, queue, wstop)
+	}()
+}
+
+// writeLoop is the single background writer. One goroutine owns every insert,
+// so two tool calls in flight never contend for SQLite's write lock on the
+// request path (discovery doc §3.2).
+func (s *thoughtSignatureStore) writeLoop(p thoughtSignaturePersister, queue <-chan asyncWriteTask, stop <-chan struct{}) {
+	for {
+		select {
+		case task := <-queue:
+			s.runWrite(p, task)
+		case <-stop:
+			// Graceful shutdown: whatever is already queued still lands, so a
+			// restart does not lose signatures that were accepted (§3.4).
+			for {
+				select {
+				case task := <-queue:
+					s.runWrite(p, task)
+				default:
+					return
+				}
+			}
+		}
+	}
+}
+
+func (s *thoughtSignatureStore) runWrite(p thoughtSignaturePersister, task asyncWriteTask) {
+	if task.done != nil {
+		close(task.done)
+		return
+	}
+	if err := p.SaveThoughtSignature(task.key, task.signature, task.family, task.expiresAt); err != nil {
+		log.Warn("translator", "thought signature persist skipped", "error", err)
+	}
+}
+
+// pruneLoop deletes expired rows on the same cadence as the memory TTL.
+func (s *thoughtSignatureStore) pruneLoop(p thoughtSignaturePersister, stop <-chan struct{}) {
+	ticker := time.NewTicker(memoryTTL)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-stop:
+			return
+		case now := <-ticker.C:
+			if _, err := p.PruneThoughtSignatures(now); err != nil {
+				log.Warn("translator", "thought signature prune skipped", "error", err)
+			}
+			// Expiry alone is not a bound: a live gateway keeps writing. Trim
+			// to the L2 capacity so the table stops at the size the contract
+			// names instead of at whatever disk fills to.
+			if _, err := p.TrimThoughtSignatures(maxPersistentSignatures); err != nil {
+				log.Warn("translator", "thought signature trim skipped", "error", err)
+			}
+		}
+	}
+}
+
+// persistWrite is gone: writes now travel through enqueueSignatureWrites and
+// the single background writer.
+
+// enqueueSignatureWrites queues one row per key. Never blocks: a full queue
+// drops the row (§3.3). L1 already holds the entry, so the live session keeps
+// working and only restart recovery loses that signature.
+func (s *thoughtSignatureStore) enqueueSignatureWrites(queue chan asyncWriteTask, keys []string, signature, family string, expiresAt time.Time) {
+	for _, k := range keys {
+		task := asyncWriteTask{key: k, signature: signature, family: family, expiresAt: expiresAt}
+		select {
+		case queue <- task:
+		default:
+			s.dropped.Add(1)
+		}
+	}
+}
+
+// drainSignatureWrites blocks until every write queued before this call has
+// been attempted. Tests use it instead of sleeping; production never needs it.
+func (s *thoughtSignatureStore) drainSignatureWrites() {
+	s.mu.Lock()
+	queue := s.writeQueue
+	s.mu.Unlock()
+	if queue == nil {
+		return
+	}
+	done := make(chan struct{})
+	select {
+	case queue <- asyncWriteTask{done: done}:
+		<-done
+	default:
+		// A full queue means the writer is already behind; a barrier that
+		// cannot be queued cannot promise ordering, and blocking here would
+		// defeat the fail-open contract it exists to test.
+	}
 }
 
 func (s *thoughtSignatureStore) pruneExpiredLocked(now time.Time) {
@@ -83,7 +318,13 @@ func StoreGeminiThoughtSignature(toolCallID, signature, sessionID string, model 
 		family = SignatureFamily(model[0])
 	}
 	now := time.Now()
-	exp := now.Add(memoryTTL)
+	// Two clocks, deliberately: the in-memory entry is the hot path and keeps
+	// the short TTL, while the row that outlives the process is written with
+	// the disk TTL. Using one value for both made "survives a restart" mean
+	// "survives a restart within the hour", which is not what persisting is
+	// for.
+	memExp := now.Add(memoryTTL)
+	diskExp := now.Add(persistentTTL)
 
 	// Clean toolCallID if it contains __ts__ suffix
 	cleanID := toolCallID
@@ -92,7 +333,6 @@ func StoreGeminiThoughtSignature(toolCallID, signature, sessionID string, model 
 	}
 
 	globalThoughtSigStore.mu.Lock()
-	defer globalThoughtSigStore.mu.Unlock()
 
 	globalThoughtSigStore.pruneExpiredLocked(now)
 
@@ -115,9 +355,17 @@ func StoreGeminiThoughtSignature(toolCallID, signature, sessionID string, model 
 		globalThoughtSigStore.entries[k] = signatureEntry{
 			signature: signature,
 			family:    family,
-			expiresAt: exp,
+			expiresAt: memExp,
 		}
 	}
+	persister := globalThoughtSigStore.persist
+	queue := globalThoughtSigStore.writeQueue
+	globalThoughtSigStore.mu.Unlock()
+
+	if persister == nil || queue == nil {
+		return
+	}
+	globalThoughtSigStore.enqueueSignatureWrites(queue, keys, signature, family, diskExp)
 }
 
 // GetGeminiThoughtSignature retrieves a thought signature by tool_call_id (checking session namespace first and matching model family).
@@ -138,15 +386,16 @@ func GetGeminiThoughtSignature(toolCallID, sessionID string, model ...string) st
 	now := time.Now()
 
 	globalThoughtSigStore.mu.RLock()
-	defer globalThoughtSigStore.mu.RUnlock()
 
 	// 1. Session-scoped check
 	if sessionID != "" {
 		if entry, ok := globalThoughtSigStore.entries[sessionID+":"+toolCallID]; ok && now.Before(entry.expiresAt) && isFamilyCompatible(entry.family, targetFamily) {
+			globalThoughtSigStore.mu.RUnlock()
 			return entry.signature
 		}
 		if cleanID != toolCallID {
 			if entry, ok := globalThoughtSigStore.entries[sessionID+":"+cleanID]; ok && now.Before(entry.expiresAt) && isFamilyCompatible(entry.family, targetFamily) {
+				globalThoughtSigStore.mu.RUnlock()
 				return entry.signature
 			}
 		}
@@ -154,12 +403,59 @@ func GetGeminiThoughtSignature(toolCallID, sessionID string, model ...string) st
 
 	// 2. Global toolCallID check
 	if entry, ok := globalThoughtSigStore.entries[toolCallID]; ok && now.Before(entry.expiresAt) && isFamilyCompatible(entry.family, targetFamily) {
+		globalThoughtSigStore.mu.RUnlock()
 		return entry.signature
 	}
 	if cleanID != toolCallID {
 		if entry, ok := globalThoughtSigStore.entries[cleanID]; ok && now.Before(entry.expiresAt) && isFamilyCompatible(entry.family, targetFamily) {
+			globalThoughtSigStore.mu.RUnlock()
 			return entry.signature
 		}
+	}
+
+	persister := globalThoughtSigStore.persist
+	globalThoughtSigStore.mu.RUnlock()
+
+	if persister == nil {
+		return ""
+	}
+
+	// 3. Memory miss with persistence attached: the row may have been evicted
+	// from the hot map (2000-entry cap) or written by a previous process whose
+	// boot hydrate ran before this key existed. Read through and repopulate.
+	candidates := make([]string, 0, 4)
+	if sessionID != "" {
+		candidates = append(candidates, sessionID+":"+toolCallID)
+		if cleanID != toolCallID {
+			candidates = append(candidates, sessionID+":"+cleanID)
+		}
+	}
+	candidates = append(candidates, toolCallID)
+	if cleanID != toolCallID {
+		candidates = append(candidates, cleanID)
+	}
+
+	for _, k := range candidates {
+		row, err := persister.GetThoughtSignature(k)
+		if err != nil {
+			log.Warn("translator", "thought signature lookup skipped", "error", err)
+			return ""
+		}
+		if row == nil || !now.Before(row.ExpiresAt) || !isFamilyCompatible(row.Family, targetFamily) {
+			continue
+		}
+
+		globalThoughtSigStore.mu.Lock()
+		if _, exists := globalThoughtSigStore.entries[k]; !exists {
+			globalThoughtSigStore.order = append(globalThoughtSigStore.order, k)
+		}
+		globalThoughtSigStore.entries[k] = signatureEntry{
+			signature: row.Signature,
+			family:    row.Family,
+			expiresAt: row.ExpiresAt,
+		}
+		globalThoughtSigStore.mu.Unlock()
+		return row.Signature
 	}
 	return ""
 }
