@@ -34,6 +34,12 @@ type ProviderConfig struct {
 	// LocalByDesign marks a provider whose upstream endpoint is intended to run on the
 	// local host or loopback network (e.g. ollama-local on localhost:11434).
 	LocalByDesign bool
+
+	// Hidden keeps a provider out of the lists a person scans — the provider
+	// pickers, the quota page — while leaving it fully reachable: connections
+	// still resolve it and requests still route to it. The MMF entries use it
+	// because they exist to serve traffic, not to be chosen.
+	Hidden bool
 }
 
 // Bedrock protocol constants. Region is substituted per request by the executor, so the
@@ -497,6 +503,7 @@ var KnownProviders = map[string]ProviderConfig{
 		AuthScheme:    "bearer",
 		DefaultAPIKey: "mimo-dynamic",
 		NoAuth:        true,
+		Hidden:        true,
 	},
 	"blackbox": {
 		BaseURL:    "https://api.blackbox.ai/v1/chat/completions",

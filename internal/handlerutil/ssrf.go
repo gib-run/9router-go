@@ -229,6 +229,58 @@ func isBlockedHost(host string) bool {
 	return false
 }
 
+// IsCloudMetadataURL reports whether rawURL targets a cloud instance-metadata
+// service. This is the carve-out the loopback bypass must not cover: a browser
+// on the same machine may legitimately point a self-hosted node at
+// 127.0.0.1:11434, but nothing legitimate points one at the metadata service,
+// which hands out instance credentials to any process that asks from inside
+// the VM.
+//
+// Only the metadata addresses are listed. Loopback, RFC1918 and the rest stay
+// the caller's decision, because a self-hosted provider is exactly a request
+// to reach those on purpose.
+func IsCloudMetadataURL(rawURL string) bool {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	host := normalizeHost(parsed.Hostname())
+	if host == "" {
+		return false
+	}
+	trimmed := strings.Trim(host, "[]")
+	ip := net.ParseIP(trimmed)
+	if ip == nil {
+		return false
+	}
+	for _, block := range cloudMetadataAddrs {
+		if block.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+// cloudMetadataAddrs are the published metadata endpoints of the clouds this
+// gateway's providers run on, held as single-address networks so the check is
+// one Contains loop rather than a chain of comparisons.
+var cloudMetadataAddrs = func() []*net.IPNet {
+	specs := []string{
+		"169.254.0.0/16",     // IPv4 link-local: AWS/GCP/Azure/DigitalOcean IMDS, AWS ECS (169.254.170.2)
+		"100.100.100.200/32", // Alibaba Cloud
+		"192.0.0.192/32",     // Oracle Cloud
+		"fe80::/10",          // IPv6 link-local, which is where an IPv6 IMDS lives
+		"fd00:ec2::254/128",  // AWS IMDS over IPv6
+	}
+	blocks := make([]*net.IPNet, 0, len(specs))
+	for _, spec := range specs {
+		if _, block, err := net.ParseCIDR(spec); err == nil {
+			blocks = append(blocks, block)
+		}
+	}
+	return blocks
+}()
+
 // AssertPublicURL checks that rawURL does not point to an internal or private address.
 // Returns an error if the URL is blocked (SSRF prevention).
 // Matches Next.js assertPublicUrl in src/shared/utils/ssrfGuard.js (hardened #3714).

@@ -295,7 +295,10 @@ func (h *ChatHandler) connectedProviderIDs(conns []*models.ProviderConnection) m
 		}
 	}
 	for id, cfg := range providers.KnownProviders {
-		if cfg.NoAuth {
+		// Hidden providers still serve connections, but they are not offered
+		// here: this map drives what /v1/models advertises, and an entry the
+		// operator never chose should not appear in a catalog they browse.
+		if cfg.NoAuth && !cfg.Hidden {
 			ids[id] = true
 		}
 	}
@@ -668,6 +671,18 @@ func appendNoAuthCatalogModels(
 			continue
 		}
 		if !providers.IsNoAuthProvider(alias) {
+			continue
+		}
+		// Hidden providers serve traffic without being offered. Checked on the
+		// canonical id so every spelling of the same provider (mimo-free and its
+		// mmf alias) leaves the catalog together — this loop publishes each
+		// alias that resolves to itself, so an alias-only check would let one
+		// spelling through while blocking the other.
+		canonical := providers.ResolveAlias(alias)
+		if canonical == "" {
+			canonical = alias
+		}
+		if providers.KnownProviders[canonical].Hidden {
 			continue
 		}
 		for _, modelID := range modelIDs {
