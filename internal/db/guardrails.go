@@ -92,6 +92,36 @@ func (r *Repo) ListGuardrailPolicies(scope, scopeID string) ([]*GuardrailPolicy,
 	return out, nil
 }
 
+// ListGuardrailPoliciesForScope returns every enabled policy of one scope,
+// including policies bound to a single subject. The resolver never asks for
+// this shape — it resolves one exact scope tuple — but the dashboard lists the
+// whole scope so a policy scoped to one model or key is visible there.
+func (r *Repo) ListGuardrailPoliciesForScope(scope string) ([]*GuardrailPolicy, error) {
+	rows, err := r.db.Query(
+		`SELECT `+guardrailPolicyColumns+` FROM guardrail_policies
+		 WHERE tenant_id = ? AND scope = ? AND enabled = 1
+		 ORDER BY scope_id, id`,
+		DefaultGuardrailTenant, scope,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list guardrail policies for scope %s: %w", scope, err)
+	}
+	defer rows.Close()
+
+	var out []*GuardrailPolicy
+	for rows.Next() {
+		p, err := scanGuardrailPolicy(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan guardrail policy: %w", err)
+		}
+		out = append(out, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list guardrail policies for scope %s: %w", scope, err)
+	}
+	return out, nil
+}
+
 // GetGuardrailPolicy fetches one policy by id.
 func (r *Repo) GetGuardrailPolicy(id string) (*GuardrailPolicy, error) {
 	row := r.db.QueryRow(`SELECT `+guardrailPolicyColumns+` FROM guardrail_policies WHERE id = ?`, id)
