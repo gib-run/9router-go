@@ -48,6 +48,3 @@ base64 image field, the prose control, the upstream header overwrite, and the
 two lanes that bypass the funnel. The refusal tests count the upstream
 requests that actually arrived and require zero — the cap has to fire before
 the call, not after it.
-
-> Rename this fragment to `<pr-number>-media-input-caps.md` once a PR number
-> exists. It carries a local slug because no PR has been opened.
