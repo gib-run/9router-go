@@ -139,6 +139,26 @@
 
   // One area path per series, bounded by its own cumulative band, so the areas
   // stack without overlapping.
+  // Arrow keys walk the same points the mouse reveals. A tooltip reachable only
+  // by hovering is unreadable to anyone driving the page from the keyboard, and
+  // the table below is the non-visual equivalent of the drawn series.
+  function handlePointKey(event: KeyboardEvent, index: number) {
+    if (event.key === 'ArrowRight') {
+      event.preventDefault()
+      hovered = Math.min(stack.length - 1, index + 1)
+      return
+    }
+    if (event.key === 'ArrowLeft') {
+      event.preventDefault()
+      hovered = Math.max(0, index - 1)
+      return
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      hovered = null
+    }
+  }
+
   function areaPath(band: number): string {
     if (stack.length === 0) return ''
     const top = stack.map((s, i) => `${xAt(i)},${yAt(s.cumulative[band] || 0)}`).join(' L ')
@@ -171,7 +191,8 @@
         {/each}
         {#each stack as _point, i}
           <rect
-            role="presentation"
+            tabindex="0"
+            aria-label="{stack[i].bucket.label}: {fmtTokens(stack[i].bucket.tokens)} tokens"
             x={xAt(i) - step / 2}
             y="0"
             width={step}
@@ -179,6 +200,9 @@
             fill="transparent"
             onmouseenter={() => (hovered = i)}
             onmouseleave={() => (hovered = null)}
+            onfocus={() => (hovered = i)}
+            onblur={() => (hovered = null)}
+            onkeydown={(event) => handlePointKey(event, i)}
           />
         {/each}
         {#if hovered !== null && stack[hovered]}
@@ -195,7 +219,13 @@
         {/if}
       </svg>
       {#if hovered !== null && stack[hovered]}
-        <div class="mt-2 rounded-[10px] border border-border bg-surface-2 px-3 py-2 text-[11px] text-text-main">
+        <!-- role=status so a screen reader hears the point the keyboard just
+             moved to; the same node is the pointer tooltip. -->
+        <div
+          role="status"
+          aria-live="polite"
+          class="mt-2 rounded-[10px] border border-border bg-surface-2 px-3 py-2 text-[11px] text-text-main"
+        >
           <div class="font-semibold text-text-muted">{stack[hovered].bucket.label}</div>
           <div class="mt-1 flex items-center justify-between gap-3">
             <span>Tokens</span>
@@ -235,5 +265,34 @@
       <span>{buckets[0]?.label}</span>
       <span>{buckets[buckets.length - 1]?.label}</span>
     </div>
+
+    <!-- The drawn areas carry no text a screen reader can read and the tooltip
+         only opens under a pointer, so the same numbers are here as a table. -->
+    <details class="text-[11px] text-text-muted">
+      <summary class="cursor-pointer select-none">View table</summary>
+      <table class="mt-2 w-full border-collapse text-left" aria-label="Usage trend table">
+        <thead>
+          <tr class="border-b border-border-subtle">
+            <th scope="col" class="py-1 pr-2 font-medium">{hourly ? 'Hour' : 'Day'}</th>
+            <th scope="col" class="py-1 pr-2 text-right font-medium">Tokens</th>
+            <th scope="col" class="py-1 text-right font-medium">Est. cost</th>
+          </tr>
+        </thead>
+        <tbody>
+          <!-- The label is not a unique key: a daily bucket is labelled "Jan 2",
+               so a period long enough to cross a year boundary repeats it and
+               Svelte throws each_key_duplicate, which takes the usage page
+               down with it. The index is the key here — the same choice the
+               plotted points above make — and it is unique by construction. -->
+          {#each stack as point, i (i)}
+            <tr class="border-b border-border-subtle/60">
+              <th scope="row" class="py-1 pr-2 font-normal text-text-main">{point.bucket.label}</th>
+              <td class="py-1 pr-2 text-right font-mono">{fmtTokens(point.bucket.tokens)}</td>
+              <td class="py-1 text-right font-mono">~${point.bucket.cost.toFixed(2)}</td>
+            </tr>
+          {/each}
+        </tbody>
+      </table>
+    </details>
   {/if}
 </div>
