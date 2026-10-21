@@ -33,6 +33,3 @@ Verified with `internal/netguard/netguard_test.go`, which pins the blocked
 ranges (including `100.100.100.200` and `192.0.0.192`) and carries a control
 on both sides of the RFC6598 block, so a guard that refused everything would
 fail the test rather than pass it.
-
-> Rename this fragment to `<pr-number>-shared-netguard.md` once a PR number
-> exists. It carries a local slug because no PR has been opened.
