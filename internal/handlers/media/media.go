@@ -199,7 +199,11 @@ func (h *MediaHandler) HandleAudioSpeech(w http.ResponseWriter, r *http.Request)
 	defer r.Body.Close()
 	// Xiaomi MiMo TTS uses a chat-completions contract, not the OpenAI
 	// /audio/speech shape (port of open-sse/handlers/ttsProviders/xiaomi-mimo.js).
+	// It leaves forwardTTSRequest behind, so it needs the guard here.
 	if h.isMiMoSpeech(body) {
+		if _, refused := guardMediaInput(w, r.Header.Get("Content-Type"), body); refused {
+			return
+		}
 		h.forwardMiMoSpeech(w, r, body)
 		return
 	}
@@ -224,6 +228,14 @@ func (h *MediaHandler) HandleSystemone(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !h.ChatH.EnforceModelAccess(w, r, reqBody.Model) {
+		return
+	}
+	// SystemOne forwards on its own path rather than through
+	// forwardMediaRequest, so the cap and the usage accounting have to be
+	// applied here. Its body is JSON with a `state` payload, which is why it
+	// never trips the media walk in practice — but "in practice" is exactly
+	// the assumption an unbounded lane depends on.
+	if _, refused := guardMediaInput(w, r.Header.Get("Content-Type"), body); refused {
 		return
 	}
 	h.forwardSystemoneRequest(w, r, body, reqBody.Model)
@@ -334,9 +346,7 @@ func (h *MediaHandler) forwardSystemoneRequest(w http.ResponseWriter, r *http.Re
 		return
 	}
 	defer resp.Body.Close()
-	for k, v := range resp.Header {
-		w.Header()[k] = v
-	}
+	copyUpstreamHeaders(w.Header(), resp.Header)
 	w.WriteHeader(resp.StatusCode)
 	io.Copy(w, resp.Body)
 	if resp.StatusCode == http.StatusOK && conn != nil {
@@ -690,6 +700,14 @@ func targetPrivate(ctx context.Context, host string) bool {
 }
 
 func (h *MediaHandler) forwardMediaRequest(w http.ResponseWriter, r *http.Request, body []byte, defaultModel, endpoint string) {
+	// Media input caps and request-level usage, at the one funnel every media
+	// lane passes through. This sits before model resolution, access control
+	// and connection selection on purpose: an oversized request must never
+	// reach an upstream call, because the call is what gets billed.
+	if _, refused := guardMediaInput(w, r.Header.Get("Content-Type"), body); refused {
+		return
+	}
+
 	model := defaultModel
 	var reqBody struct {
 		Model string `json:"model"`
@@ -890,9 +908,7 @@ func (h *MediaHandler) forwardMediaRequest(w http.ResponseWriter, r *http.Reques
 				continue
 			}
 			defer resp.Body.Close()
-			for k, v := range resp.Header {
-				w.Header()[k] = v
-			}
+			copyUpstreamHeaders(w.Header(), resp.Header)
 			w.WriteHeader(resp.StatusCode)
 			io.Copy(w, resp.Body)
 			h.Repo.UpdateConnectionLastUsed(conn.ID)
@@ -1153,9 +1169,7 @@ func (h *MediaHandler) forwardMediaRequest(w http.ResponseWriter, r *http.Reques
 		resp.Body = io.NopCloser(bytes.NewReader(errBody))
 	}
 
-	for k, v := range resp.Header {
-		w.Header()[k] = v
-	}
+	copyUpstreamHeaders(w.Header(), resp.Header)
 	w.WriteHeader(resp.StatusCode)
 	io.Copy(w, resp.Body)
 
