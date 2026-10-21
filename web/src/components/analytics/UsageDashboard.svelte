@@ -44,7 +44,10 @@
     const l: UsageLifetime | null = lifetime
     if (!l) return []
     return [
-      { label: 'Total Requests', value: l.totalRequests.toLocaleString(), valueClass: 'text-text-main' },
+      // Lifetime scope, unlike the Overview KPI of the same name, which counts
+      // the selected window only. The label says so, and the row's other cards
+      // ("Lifetime Tokens", "Peak Day Tokens") are all-time too.
+      { label: 'Lifetime Requests', value: l.totalRequests.toLocaleString(), valueClass: 'text-text-main' },
       { label: 'Lifetime Tokens', value: fmtTokens(l.totalTokens), valueClass: 'text-primary' },
       {
         label: 'Peak Day Tokens',

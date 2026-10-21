@@ -108,7 +108,7 @@
   Anti-Poisoning, in the same order, and the Advanced settings switch still
   folds Sidebar and Usage dashboard away (nine cards open, seven folded).
 - **Combo flow and Usage trend are collapsible, and stop querying when hidden.**
-  Ported from upstream #429: both optional Overview panels are Cards with a
+  Extends the pattern #429 started: both optional Overview panels are Cards with a
   chevron in the header, closed by default, and the two sit last in the declared
   order so a reader reaches the numbers before a disclosure row. Their headers are
   the Details panels' own — `font-headline text-sm font-bold` title over
@@ -119,16 +119,23 @@
   draws nothing then, so the definitions would only cost a request and memory —
   and turning it back on refetches without a reload, because the fetch reads the
   arrangement reactively.
-- **Upstream's Usage Details removal is deliberately not taken.** Upstream #429
+- **The Usage Details summary cards stay, and the one that clashes with the
+  Overview is renamed.** #429
   deleted the five Details summary cards (Total Requests, Lifetime Tokens, Peak
   Day Tokens, Cache Hit Rate, Most Used Model) as redundant with the Overview.
   They stay here: on this branch each of those is an arrangement panel an
   operator can keep or hide, so the delete would remove a control rather than
-  duplicate a number. Verified in the browser with every Details panel enabled —
-  all five render (30,228 / 2.1B / 184.1M / 89.3% / perf-model), beside the
-  Activity Heatmap and Node Health.
-- **The lifetime cache-hit rate costs no extra query.** Ported from upstream #426:
-  `GetCacheUsageRows` scanned the whole ledger with a `LIKE '%cached%'` prefilter
+  duplicate a number. The Overview KPI of the same name counts the selected
+  window only, so the Details card now reads "Lifetime Requests" — the all-time
+  scope it already had, and the scope of "Lifetime Tokens" and "Peak Day Tokens"
+  beside it. Verified in the browser with every Details panel enabled: all five
+  render (1,941 / 11.8M / 435.9K / — / nemotron-70b against a harness database
+  holding 1,941 `usageHistory` rows), the first card reads "Lifetime Requests",
+  and the Overview KPI of the same name is unchanged. The row keeps its place
+  beside the Activity Heatmap and Node Health.
+- **The lifetime cache-hit rate costs no extra query.** Completes the work #426
+  began: `GetCacheUsageRows` scanned the whole ledger with a
+  `LIKE '%cached%'` prefilter
   purely to build that one percentage. It is gone; `windowCacheHitRate` computes
   the same number from the trailing-7-day rows the Top Model card already reads,
   with the cache-inclusive/cache-exclusive shapes resolved by
