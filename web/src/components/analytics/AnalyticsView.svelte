@@ -56,6 +56,16 @@
   // visibility toggle, and that one also skips the combo query below.
   let comboFlowOpen = $state(false)
   let usageTrendOpen = $state(false)
+  // The trend's metric switch lives in the panel header, and the header label
+  // describes the active metric — so both the mode and the hourly fact the
+  // label repeats are owned here (UsageChart reports the bucket shape back).
+  let trendMode = $state<'tokens' | 'costs'>('tokens')
+  let trendHourly = $state(false)
+  const trendLabel = $derived(
+    trendMode === 'costs'
+      ? `Estimated cost per ${trendHourly ? 'hour' : 'day'}, stacked by model family.`
+      : `Tokens per ${trendHourly ? 'hour' : 'day'}, stacked by model family.`
+  )
 
   // Choosing a section has to move the URL when that section owns one, or the
   // next reload silently drops back to Overview.
@@ -549,7 +559,9 @@
         {@render recentRequestsCard()}
       {:else if block.key === 'overview.trend'}
         <!-- Usage trend: the same collapsed-by-default shape as Combo flow, so the
-             two optional panels read alike. -->
+             two optional panels read alike. The metric switch lives here, in the
+             header, beside the chevron — the label below it names what is drawn,
+             so the two cannot disagree. -->
         <Card padding="none" class="overflow-hidden border border-border">
           <div
             class="flex flex-col gap-3 bg-surface-2 px-5 py-3 sm:flex-row sm:items-center sm:justify-between {usageTrendOpen
@@ -562,14 +574,42 @@
               >
               <div class="min-w-0">
                 <h2 class="font-headline text-sm font-bold text-text-main">Usage trend</h2>
-                <p class="font-body text-xs text-text-muted">Requests per day, selected window</p>
+                <p class="font-body text-xs text-text-muted">{trendLabel}</p>
               </div>
             </div>
-            {@render panelToggle(usageTrendOpen, 'Usage trend', () => (usageTrendOpen = !usageTrendOpen))}
+            <div class="flex items-center gap-2 self-start sm:self-auto">
+              <div
+                class="inline-flex rounded-xl bg-surface border border-border p-1 shadow-sm"
+                role="group"
+                aria-label="Chart metric"
+              >
+                <button
+                  type="button"
+                  onclick={() => (trendMode = 'costs')}
+                  class="rounded-lg px-3 py-1 text-xs font-semibold transition-colors cursor-pointer {trendMode ===
+                  'costs'
+                    ? 'bg-brand-500 text-white shadow-sm'
+                    : 'text-text-muted hover:text-text-main'}"
+                >
+                  Costs
+                </button>
+                <button
+                  type="button"
+                  onclick={() => (trendMode = 'tokens')}
+                  class="rounded-lg px-3 py-1 text-xs font-semibold transition-colors cursor-pointer {trendMode ===
+                  'tokens'
+                    ? 'bg-brand-500 text-white shadow-sm'
+                    : 'text-text-muted hover:text-text-main'}"
+                >
+                  Tokens
+                </button>
+              </div>
+              {@render panelToggle(usageTrendOpen, 'Usage trend', () => (usageTrendOpen = !usageTrendOpen))}
+            </div>
           </div>
           {#if usageTrendOpen}
             <div class="p-5">
-              <UsageChart {period} />
+              <UsageChart {period} bind:viewMode={trendMode} bind:hourly={trendHourly} />
             </div>
           {/if}
         </Card>
