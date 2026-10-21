@@ -285,13 +285,7 @@ func sseToClaudeJSON(raw []byte) ([]byte, bool) {
 					}
 					if a, ok := fn["arguments"].(string); ok && a != "" {
 						existing, _ := fEntry["arguments"].(string)
-						if existing == "" {
-							fEntry["arguments"] = a
-						} else if existing != a && !strings.Contains(existing, a) {
-							if len(a) > 0 && !strings.HasSuffix(existing, a) {
-								fEntry["arguments"] = existing + a
-							}
-						}
+						fEntry["arguments"] = existing + a
 					}
 				}
 			}
