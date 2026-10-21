@@ -3,10 +3,11 @@
   import { copyToClipboard } from '../lib/clipboard'
   import { TAB_ROUTES, type ActiveTab } from '../lib/router'
   import { isNavLinkActive, visibleNavGroups } from '../lib/nav'
+  import { language } from '../lib/locale.svelte'
 
   export type { ActiveTab }
   let {
-    activeTab = $bindable('endpoint'),
+    activeTab = $bindable('dashboard'),
     navigate = (tab: ActiveTab) => {
       activeTab = tab
     },
@@ -17,6 +18,8 @@
     updateInfo = $bindable(null),
     version = $bindable(''),
     hiddenNav,
+    brandName = '',
+    brandLogo = '',
   }: {
     activeTab: ActiveTab
     navigate?: (tab: ActiveTab, replace?: boolean) => void
@@ -27,9 +30,26 @@
     updateInfo?: SystemVersionInfo | null
     version?: string
     hiddenNav?: string[]
+    brandName?: string
+    brandLogo?: string
   } = $props()
   const INSTALL_CMD = '9router-go update'
   let copied = $state(false)
+
+  const navIconTone: Record<string, string> = {
+    dashboard: 'text-cyan-500', endpoint: 'text-blue-500', connections: 'text-sky-500',
+    combos: 'text-violet-500', analytics: 'text-emerald-500', quota: 'text-amber-500',
+    'token-saver': 'text-pink-500', 'cli-tools': 'text-indigo-500',
+    'media-providers': 'text-fuchsia-500', 'media-embedding': 'text-teal-500',
+    'media-image': 'text-rose-500', 'media-tts': 'text-orange-500', 'media-stt': 'text-amber-600',
+    'media-video': 'text-red-500', 'media-systemone': 'text-purple-500', 'media-web': 'text-blue-400',
+    'proxy-pools': 'text-cyan-600', skills: 'text-lime-600', 'console-log': 'text-slate-500',
+    settings: 'text-slate-500', security: 'text-emerald-600', plans: 'text-yellow-500',
+  }
+
+  function iconTone(id: string, active: boolean) {
+    return active ? 'text-primary' : `${navIconTone[id] || 'text-text-muted'} group-hover:scale-110 transition-all`
+  }
 
   // Media providers accordion (collapsed by default)
   let isMediaOpen = $state(false)
@@ -83,7 +103,15 @@
 
   // The sidebar and the Settings > Sidebar switch read the same entry list
   // (web/src/lib/nav.ts), so a hidden entry is hidden in both.
-  const navGroups = $derived(visibleNavGroups(hiddenNav))
+  const navGroups = $derived(visibleNavGroups(hiddenNav).map((group) => ({
+    ...group,
+    label: language.current === 'pt-BR' ? ({ System: 'Sistema' }[group.label || ''] || group.label) : group.label,
+    entries: group.entries.map((entry) => {
+      const tr: Record<string, string> = { Dashboard: 'Painel', 'Endpoint & Key': 'Endpoint e chaves', Providers: 'Provedores', 'Combo & Vision Adapter': 'Combos e adaptador de visão', Usage: 'Uso', 'Quota Tracker': 'Cotas', 'Token Saver': 'Economia de tokens', 'CLI Tools': 'Ferramentas CLI', 'Media Providers': 'Provedores de mídia', Embedding: 'Embeddings', 'Text to Image': 'Texto para imagem', 'Text To Speech': 'Texto para fala', 'Speech To Text': 'Fala para texto', Video: 'Vídeo', 'System One': 'System One', 'Web Fetch & Search': 'Busca e pesquisa web', 'Proxy Pools': 'Pools de proxy', Skills: 'Skills', 'Console Log': 'Log do console', Settings: 'Configurações', Security: 'Segurança', Plans: 'Planos' }
+      if (entry.kind === 'link') return { ...entry, label: language.current === 'pt-BR' ? (tr[entry.label] || entry.label) : entry.label }
+      return { ...entry, label: language.current === 'pt-BR' ? (tr[entry.label] || entry.label) : entry.label, children: entry.children.map((child) => ({ ...child, label: language.current === 'pt-BR' ? (tr[child.label] || child.label) : child.label })) }
+    }),
+  })))
 </script>
 
 <aside
@@ -99,22 +127,22 @@
   <!-- Brand header: 9router-go with official favicon.svg logo -->
   <div class="px-6 py-4 flex flex-col gap-2 shrink-0">
     <a
-      href={TAB_ROUTES.endpoint}
-      onclick={(e) => handleNav('endpoint', e)}
+      href={TAB_ROUTES.dashboard}
+      onclick={(e) => handleNav('dashboard', e)}
       class="flex items-center gap-3 cursor-pointer group"
     >
       <div
         class="flex items-center justify-center size-9 rounded-[10px] bg-surface-2 border border-border-subtle shadow-[var(--shadow-warm)] flex-shrink-0 group-hover:scale-105 transition-transform overflow-hidden p-1.5"
       >
         <img
-          src="/favicon.svg"
-          alt="9router-go"
+          src={brandLogo || '/favicon.svg'}
+          alt={brandName || '9router-go'}
           class="w-full h-full object-contain"
         />
       </div>
       <div class="flex flex-col min-w-0">
         <h1 class="text-lg font-semibold tracking-tight text-text-main truncate leading-snug">
-          9router-go
+          {brandName || '9router-go'}
         </h1>
         <span class="text-xs text-text-muted leading-tight">
           {version ? `v${version}` : 'v1.9.9'}
@@ -175,7 +203,7 @@
                 ? 'bg-primary/10 text-primary font-medium'
                 : 'text-text-muted hover:bg-surface-2 hover:text-text-main'}"
             >
-              <span class="material-symbols-outlined text-[18px]">{entry.icon}</span>
+              <span class={`material-symbols-outlined text-[18px] ${iconTone(entry.id, activeTab.startsWith('media-'))}`}>{entry.icon}</span>
               <span class="text-[13px] flex-1 text-left">{entry.label}</span>
               <span
                 class="material-symbols-outlined text-[14px] transition-transform duration-200"
@@ -197,9 +225,7 @@
                       : 'text-text-muted hover:bg-surface-2 hover:text-text-main'}"
                   >
                     <span
-                      class="material-symbols-outlined text-[16px] {childActive
-                        ? 'fill-1'
-                        : 'group-hover:text-primary transition-colors'}"
+                      class={`material-symbols-outlined text-[16px] ${childActive ? 'fill-1 text-primary' : iconTone(child.id, false)}`}
                     >
                       {child.icon}
                     </span>
@@ -218,9 +244,7 @@
                 : 'text-text-muted hover:bg-surface-2 hover:text-text-main'}"
             >
               <span
-                class="material-symbols-outlined text-[18px] {active
-                  ? 'fill-1'
-                  : 'group-hover:text-primary transition-colors'}"
+                class={`material-symbols-outlined text-[18px] ${active ? 'fill-1 text-primary' : iconTone(entry.id, false)}`}
               >
                 {entry.icon}
               </span>

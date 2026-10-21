@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"crypto/subtle"
 	"database/sql"
+	json "encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -12,7 +13,6 @@ import (
 	"net/url"
 	"strings"
 	"time"
-	json "encoding/json/v2"
 
 	"golang.org/x/crypto/bcrypt"
 
@@ -102,6 +102,35 @@ func (h *DashboardHandler) HandleUpdateSettings(w http.ResponseWriter, r *http.R
 			handlerutil.WriteJSONError(w, http.StatusBadRequest, "setting "+key+" is read-only")
 			return
 		}
+	}
+	if value, ok := updates["appName"]; ok {
+		name, valid := value.(string)
+		if !valid || len([]rune(strings.TrimSpace(name))) > 60 {
+			handlerutil.WriteJSONError(w, http.StatusBadRequest, "appName must be text up to 60 characters")
+			return
+		}
+		updates["appName"] = strings.TrimSpace(name)
+	}
+	if value, ok := updates["appLogoUrl"]; ok {
+		logo, valid := value.(string)
+		logo = strings.TrimSpace(logo)
+		if !valid || len(logo) > 500 {
+			handlerutil.WriteJSONError(w, http.StatusBadRequest, "appLogoUrl must be text up to 500 characters")
+			return
+		}
+		if logo != "" {
+			parsed, err := url.Parse(logo)
+			if err != nil {
+				handlerutil.WriteJSONError(w, http.StatusBadRequest, "appLogoUrl must be an HTTPS URL or a local absolute path")
+				return
+			}
+			isLocalPath := parsed.Scheme == "" && strings.HasPrefix(logo, "/") && !strings.HasPrefix(logo, "//")
+			if parsed.Scheme != "https" && !isLocalPath {
+				handlerutil.WriteJSONError(w, http.StatusBadRequest, "appLogoUrl must be an HTTPS URL or a local absolute path")
+				return
+			}
+		}
+		updates["appLogoUrl"] = logo
 	}
 
 	// Feature Visibility stores sidebar ids, so the payload is normalized here:

@@ -44,6 +44,7 @@
     type DisplayCurrency
   } from '../lib/currency'
   import { setDisplayCurrency } from '../lib/currency.svelte'
+  import { language } from '../lib/locale.svelte'
 
   interface Props {
     settings?: Settings
@@ -71,6 +72,8 @@
   let enableSystemPrompt = $state(false)
   let systemPromptPrefix = $state('')
   let systemPromptSuffix = $state('')
+  let appName = $state('')
+  let appLogoUrl = $state('')
 
   const ANTI_POISONING_PRESET =
     '[CRITICAL CODE INTEGRITY & ANTI-POISONING RULE]\n' +
@@ -158,6 +161,8 @@
       if (typeof settings.stickyRoundRobinLimit === 'number') stickyRoundRobinLimit = settings.stickyRoundRobinLimit
       if (typeof settings.comboStrategy === 'string') comboStrategy = settings.comboStrategy
       if (typeof settings.forceFallback === 'boolean') forceFallback = settings.forceFallback
+      if (typeof settings.appName === 'string') appName = settings.appName
+      if (typeof settings.appLogoUrl === 'string') appLogoUrl = settings.appLogoUrl
 
       // Global system prompt
       enableSystemPrompt = !!settings.systemPromptEnabled
@@ -345,6 +350,8 @@
         systemPromptEnabled: enableSystemPrompt,
         systemPromptPrefix,
         systemPromptSuffix,
+        appName: appName.trim(),
+        appLogoUrl: appLogoUrl.trim(),
         authMode,
         oidcIssuerUrl,
         oidcClientId,
@@ -616,6 +623,21 @@
     onchange={handleSettingsInput}
     onclick={handleSettingsInput}
   >
+    <Card padding="md" class="space-y-4">
+      <div class="flex items-center gap-2 border-b border-border pb-2">
+        <Sliders class="h-4 w-4 text-brand-500" />
+        <h2 class="text-sm font-bold text-text-main">{language.current === 'pt-BR' ? 'Identidade visual' : 'White-label branding'}</h2>
+      </div>
+      <p class="text-xs text-text-muted">{language.current === 'pt-BR' ? 'Personalize o nome e a logo exibidos no menu. Deixe em branco para usar o padrão do 9router-go.' : 'Customize the name and logo shown in the dashboard sidebar. Leave blank to use the 9router-go defaults.'}</p>
+      <label class="block space-y-1"><span class="text-xs font-medium text-text-main">{language.current === 'pt-BR' ? 'Nome da aplicação' : 'Application name'}</span>
+        <Input bind:value={appName} placeholder="9router-go" />
+      </label>
+      <label class="block space-y-1"><span class="text-xs font-medium text-text-main">{language.current === 'pt-BR' ? 'URL da logo' : 'Logo URL'}</span>
+        <Input bind:value={appLogoUrl} placeholder="https://example.com/logo.png" />
+      </label>
+      {#if appLogoUrl}<div class="flex items-center gap-3 rounded-lg bg-surface-2 p-3"><img src={appLogoUrl} alt={language.current === 'pt-BR' ? 'Prévia da logo' : 'Logo preview'} class="h-10 w-10 rounded object-contain" /><span class="text-xs text-text-muted">{language.current === 'pt-BR' ? 'Prévia' : 'Preview'}</span></div>{/if}
+    </Card>
+
     <!-- SECTION: Display. Unit abbreviation and the usage-detail default are
          localStorage preferences; the sidebar switch below them is a saved
          setting (navVisibility), so a change there raises the save reminder. -->

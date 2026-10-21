@@ -15,8 +15,8 @@ describe('router', () => {
   it('maps all upstream routes correctly', () => {
     expect(pathToTab('/login')).toBe('login')
     expect(pathToTab('/dashboard/endpoint')).toBe('endpoint')
-    expect(pathToTab('/dashboard')).toBe('endpoint')
-    expect(pathToTab('/')).toBe('endpoint')
+    expect(pathToTab('/dashboard')).toBe('dashboard')
+    expect(pathToTab('/')).toBe('dashboard')
     expect(pathToTab('/dashboard/providers')).toBe('connections')
     expect(pathToTab('/dashboard/combos')).toBe('combos')
     expect(pathToTab('/dashboard/usage')).toBe('analytics')

@@ -1,5 +1,6 @@
 export type ActiveTab =
   | 'login'
+  | 'dashboard'
   | 'endpoint'
   | 'connections'
   | 'combos'
@@ -30,6 +31,7 @@ export type ActiveTab =
 
 export const TAB_ROUTES: Record<ActiveTab, string> = {
   login: '/login',
+  dashboard: '/dashboard',
   endpoint: '/dashboard/endpoint',
   connections: '/dashboard/providers',
   combos: '/dashboard/combos',
@@ -62,8 +64,9 @@ const ROUTE_TO_TAB: Record<string, ActiveTab> = {
   '/login': 'login',
 
   // endpoint
-  '/': 'endpoint',
-  '/dashboard': 'endpoint',
+  '/': 'dashboard',
+  '/dashboard': 'dashboard',
+  '/dashboard/home': 'dashboard',
   '/dashboard/endpoint': 'endpoint',
   '/endpoint': 'endpoint',
 
@@ -203,7 +206,7 @@ export const USAGE_SECTION_BY_TAB: Partial<Record<ActiveTab, UsageSection>> = {
 }
 
 export function pathToTab(pathname: string): ActiveTab {
-  if (!pathname) return 'endpoint'
+  if (!pathname) return 'dashboard'
   const clean = pathname.trim().split('?')[0].split('#')[0]
   const normalized = (clean.replace(/\/+$/, '') || '/').toLowerCase()
   if (ROUTE_TO_TAB[normalized]) {
