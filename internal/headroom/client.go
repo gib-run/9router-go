@@ -198,7 +198,36 @@ func (c *HeadroomClient) Compress(ctx context.Context, body []byte, model string
 	// risk of a lossy round trip. The proxy reports its own token counts, but
 	// this compares the bytes actually about to be sent, so a proxy that reports
 	// phantom savings cannot talk the gateway into committing them.
-	if len(newBody) >= len(body)*95/100 {
+	//
+	// Upstream db81a8c9 (#4855): check both messageBytes and bodyBytes so that
+	// large unchanged tool schemas dominating the outbound body do not cause
+	// false phantom-savings rejections when messages shrank meaningfully.
+	rawMsgBytes, _ := json.Marshal(rawMessages)
+	compMsgBytes, _ := json.Marshal(compResp.Messages)
+	savedTokens := 0
+	if compResp.TokensSaved != nil {
+		if s, ok := toFloat64(compResp.TokensSaved); ok {
+			savedTokens = int(s)
+		}
+	}
+	diag := &HeadroomDiagnostics{
+		Before: HeadroomSizes{
+			BodyBytes:    len(body),
+			MessageBytes: len(rawMsgBytes),
+		},
+		After: HeadroomSizes{
+			BodyBytes:    len(newBody),
+			MessageBytes: len(compMsgBytes),
+		},
+	}
+	stats := &HeadroomStats{TokensSaved: savedTokens}
+
+	if IsHeadroomPhantomSavings(stats, diag) {
+		return body, false, nil
+	}
+
+	// If no token savings were reported, guard against any byte growth.
+	if len(newBody) >= len(body) && len(compMsgBytes) >= len(rawMsgBytes) {
 		return body, false, nil
 	}
 
