@@ -1,0 +1,42 @@
+### feat(quota): ping a connection on a schedule, so its window starts on time
+
+A provider's quota window starts when the window does, not when the first
+real request arrives. A connection with a five-hour window, used once a
+day, therefore got one real request inside a window that had already been
+running for hours — and the next request could land after the window had
+exhausted.
+
+The gateway now keeps the window open on its own: a scheduler ticks once a
+minute and pings the connections whose anchored slot has come due. The
+configuration is read from the settings row on every tick rather than cached,
+so a schedule saved in the dashboard takes effect on the next tick without a
+restart, and the loop is bound to the shutdown context so it stops with the
+other background loops.
+
+**The timezone the schedule uses was wrong by seven hours on Windows.**
+Windows reports `SE Asia Standard Time`; that is a Windows name, not an IANA
+one, so `time.LoadLocation` failed and the schedule fell back to UTC, while
+Node answers `Asia/Saigon` for the same machine. The Windows name is now
+translated through the CLDR `windowsZones` mapping (territory 001, the world
+default) into an IANA name before it is loaded. The table is generated from
+the CLDR source by `scripts/gen-windows-zones.mjs` and embedded in the binary
+— no dependency, no network at runtime. `TZ=Local` is refused as well: Go
+special-cases that one name and answers it with `time.Local`, so it passed the
+lookup and landed in the settings blob as a zone name no other runtime can
+resolve.
+
+**The configuration is merged against the stored value rather than written
+through.** A client that sends only `connections` would otherwise delete every
+schedule, and one that sends only `schedules` would wipe every switch. The
+merge happens before the write, so a bad payload leaves the settings row
+untouched.
+
+**A ping goes through the engine's own chat handler** — the same instance the
+routes are mounted on — so it resolves credentials, refreshes OAuth and picks
+an executor the way real traffic does. A second handler would be a second
+`PersistentStore` over the same SQLite file with its own in-memory LRU: the
+dashboard would report zero entries while the engine served hits, and clearing
+entries from the dashboard would leave the engine still serving them. The
+handler is returned from the router setup rather than built a second time.
+
+An unknown quota is reported as unknown rather than as exhausted.

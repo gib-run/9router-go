@@ -68,6 +68,20 @@
 
   const CONNECTIONS_PAGE_SIZE = 20
 
+  /**
+   * The shape one provider's auto-ping settings key holds on the server.
+   *
+   * Two independent halves, exactly as upstream stores them
+   * (src/shared/services/quotaAutoPing.js:289-290): `connections` says which
+   * accounts opt into the reactive ping, `schedules` says when each account is
+   * pinged on its own wall-clock slots. The dashboard only edits the first
+   * half today, so the second is carried along verbatim on every write.
+   */
+  interface AutoPingSettings {
+    connections?: Record<string, boolean>
+    schedules?: Record<string, unknown>
+  }
+
   interface Props {
     connections?: ProviderConnection[]
   }
@@ -140,6 +154,14 @@
   // Quota visibility (hidden rows), persisted via /api/settings quotaVisibility
   let quotaVisibility = $state<QuotaVisibility>({})
   let autoPingMaps = $state<{ claude: Record<string, boolean>; codex: Record<string, boolean> }>({
+    claude: {},
+    codex: {},
+  })
+  // The schedule half of the same settings key. It is kept apart from
+  // autoPingMaps because the two are independent: the switch says "ping this
+  // account when its window resets", the schedule says "ping it at 09:30 /
+  // 14:30 / 19:30". Writing one must not delete the other.
+  let autoPingSchedules = $state<{ claude: Record<string, unknown>; codex: Record<string, unknown> }>({
     claude: {},
     codex: {},
   })
@@ -379,16 +401,30 @@
   async function toggleAutoPing(connId: string, provider: string, enabled: boolean) {
     const key = AUTO_PING_SETTINGS_KEYS[provider]
     if (!key) return
-    const currentMap = autoPingMaps[provider as 'claude' | 'codex'] || {}
-    const nextMap = { ...currentMap, [connId]: enabled }
+
+    const currentConnections = autoPingMaps[provider as 'claude' | 'codex'] || {}
+    const nextConnections = { ...currentConnections, [connId]: enabled }
+    const nextSchedules = autoPingSchedules[provider as 'claude' | 'codex'] || {}
+
     autoPingMaps = {
       ...autoPingMaps,
-      [provider]: nextMap,
+      [provider]: nextConnections,
     }
+
+    // Nested shape, Node parity (upstream quotaAutoPing.js:289-290): the
+    // connections switch and the schedule map are two independent halves of
+    // one settings key. The schedule half is carried along verbatim so
+    // flipping a switch never deletes the schedule configured for that
+    // account — and the server merges the two halves the same way.
+    const payload = {
+      [key]: {
+        connections: nextConnections,
+        schedules: nextSchedules,
+      },
+    }
+
     try {
-      await api.updateSettingsRaw({
-        [key]: nextMap,
-      })
+      await api.updateSettings(payload)
     } catch (err) {
       console.error('Failed to update autoPing:', err)
     }
@@ -782,9 +818,18 @@
       .then((s) => {
         const raw = s as unknown as Record<string, unknown>
         quotaVisibility = (raw?.quotaVisibility as QuotaVisibility) || {}
+        // Nested shape from the server (Node parity): the settings key holds
+        // two independent halves — the connections switch and the schedule map.
+        const claudeConfig = raw?.claudeAutoPing as AutoPingSettings | undefined
+        const codexConfig = raw?.codexAutoPing as AutoPingSettings | undefined
+
         autoPingMaps = {
-          claude: (raw?.claudeAutoPing as Record<string, boolean>) || {},
-          codex: (raw?.codexAutoPing as Record<string, boolean>) || {},
+          claude: claudeConfig?.connections || {},
+          codex: codexConfig?.connections || {},
+        }
+        autoPingSchedules = {
+          claude: claudeConfig?.schedules || {},
+          codex: codexConfig?.schedules || {},
         }
       })
       .catch(() => {})
