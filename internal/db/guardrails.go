@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -96,8 +97,8 @@ func (r *Repo) ListGuardrailPolicies(scope, scopeID string) ([]*GuardrailPolicy,
 // including policies bound to a single subject. The resolver never asks for
 // this shape — it resolves one exact scope tuple — but the dashboard lists the
 // whole scope so a policy scoped to one model or key is visible there.
-func (r *Repo) ListGuardrailPoliciesForScope(scope string) ([]*GuardrailPolicy, error) {
-	rows, err := r.db.Query(
+func (r *Repo) ListGuardrailPoliciesForScope(ctx context.Context, scope string) ([]*GuardrailPolicy, error) {
+	rows, err := r.db.QueryContext(ctx,
 		`SELECT `+guardrailPolicyColumns+` FROM guardrail_policies
 		 WHERE tenant_id = ? AND scope = ? AND enabled = 1
 		 ORDER BY scope_id, id`,
@@ -106,7 +107,7 @@ func (r *Repo) ListGuardrailPoliciesForScope(scope string) ([]*GuardrailPolicy, 
 	if err != nil {
 		return nil, fmt.Errorf("list guardrail policies for scope %s: %w", scope, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []*GuardrailPolicy
 	for rows.Next() {

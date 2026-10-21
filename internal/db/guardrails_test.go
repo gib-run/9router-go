@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 )
@@ -29,7 +30,7 @@ func TestListGuardrailPoliciesForScope(t *testing.T) {
 		}
 	}
 
-	all, err := repo.ListGuardrailPoliciesForScope("model")
+	all, err := repo.ListGuardrailPoliciesForScope(context.Background(), "model")
 	if err != nil {
 		t.Fatalf("list for scope: %v", err)
 	}

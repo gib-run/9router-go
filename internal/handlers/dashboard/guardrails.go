@@ -94,7 +94,7 @@ func (h *DashboardHandler) HandleGetGuardrailPolicies(w http.ResponseWriter, r *
 	if query.Has("scopeId") {
 		policies, err = h.Repo.ListGuardrailPolicies(scope, scopeID)
 	} else {
-		policies, err = h.Repo.ListGuardrailPoliciesForScope(scope)
+		policies, err = h.Repo.ListGuardrailPoliciesForScope(r.Context(), scope)
 	}
 	if err != nil {
 		handlerutil.WriteJSONError(w, http.StatusInternalServerError, err.Error())

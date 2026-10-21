@@ -78,7 +78,10 @@ func TestInboundIsNoOpWithoutPolicy(t *testing.T) {
 // only the prefix and forwarding it was a silent truncation — the handler saw a
 // corrupt request while the middleware reported nothing.
 func TestInboundOversizedBodyIsForwardedUntouched(t *testing.T) {
-	body := chatBody(strings.Repeat("a", maxScanBody))
+	// The marker sits past the cap, so a test that only proved "the handler got
+	// something" would still pass while the tail was dropped.
+	const tailMarker = "tail-marker-9r-beyond-the-cap"
+	body := chatBody(strings.Repeat("a", maxScanBody) + tailMarker)
 	store := jsonStore(`{"detectors":["pii"],"action":"log_only"}`)
 
 	// A declared length is the cheap path; an unknown one (chunked upload)
@@ -111,6 +114,10 @@ func TestInboundOversizedBodyIsForwardedUntouched(t *testing.T) {
 			}
 			if !bytes.Equal(seen, []byte(body)) {
 				t.Error("oversized body was modified in transit")
+			}
+			at := bytes.Index(seen, []byte(tailMarker))
+			if at <= maxScanBody {
+				t.Errorf("tail marker at %d, want past the %d-byte cap", at, maxScanBody)
 			}
 		})
 	}
