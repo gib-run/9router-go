@@ -27,6 +27,3 @@
   `brave-browser`/`microsoft-edge`). Replaying the upstream merge over the
   same three fixtures folds `"abc"`/`"abc"` to `"abc"` and `"dup"`/`"dup"` to
   `"dup"`, so the new tests fail against the old logic.
-
-> Rename this fragment to `<pr-number>-arg-delta-concat.md` once a PR number
-> exists. It carries a local slug because no PR has been opened.
