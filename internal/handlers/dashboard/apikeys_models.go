@@ -36,6 +36,9 @@ func (h *DashboardHandler) HandleGetApiKeyModels(w http.ResponseWriter, r *http.
 	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{
 		"id":     id,
 		"models": allowed,
+		// The same policy in the shape the Node dashboard reads, so a client
+		// that speaks only `access` still sees this key's restriction.
+		"access": accessFromPatterns(allowed),
 	})
 }
 

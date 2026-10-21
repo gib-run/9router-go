@@ -31,12 +31,25 @@ func (h *DashboardHandler) HandleGetApiKeys(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	privileged := middleware.CallerIsDashboardPrivileged(h.Repo, r)
+	// Access is a second table, so it is read in one query for the whole list
+	// rather than once per key. A read failure leaves every key with an empty
+	// allowlist, which the access mapping reports as unrestricted — the same
+	// answer the gate gives when the table is absent, so the list never claims
+	// a restriction the request path is not enforcing.
+	allowlists, err := h.Repo.GetAllowedModelsForKeys(apiKeyIDs(keys))
+	if err != nil {
+		allowlists = map[string][]string{}
+	}
+
 	sanitized := make([]map[string]any, 0, len(keys))
 	for _, k := range keys {
 		if k == nil {
 			continue
 		}
 		sanitized = append(sanitized, map[string]any{
+			// The Node dashboard reads access{restricted,allow}; Go's own
+			// clients read the columns above. Both describe the same row set.
+			"access": accessFromPatterns(allowlists[k.ID]),
 			"id": k.ID, "key": apiKeySecretFor(k, privileged), "keyDisplay": apiKeyDisplay(k), "name": k.Name,
 			"machineId": k.MachineID, "isActive": k.IsActive, "createdAt": k.CreatedAt,
 			// The governance columns belong in the list, not only behind a
@@ -90,6 +103,18 @@ func maskClientKey(key string) string {
 		return "***"
 	}
 	return handlerutil.RunePrefix(key, 6) + "…" + handlerutil.RuneSuffix(key, 4)
+}
+
+// apiKeyIDs collects the non-empty ids of a key listing, for the single
+// batched allowlist read behind the list's `access` field.
+func apiKeyIDs(keys []*models.APIKey) []string {
+	ids := make([]string, 0, len(keys))
+	for _, k := range keys {
+		if k != nil && k.ID != "" {
+			ids = append(ids, k.ID)
+		}
+	}
+	return ids
 }
 
 // intOrZero unwraps an optional int column, treating NULL and 0 alike: both
