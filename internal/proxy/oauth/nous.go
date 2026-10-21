@@ -43,13 +43,13 @@ func refreshNous(ctx context.Context, p *Params) (*TokenResult, error) {
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("Nous token refresh failed: %w", err)
+		return nil, fmt.Errorf("nous token refresh failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		return nil, fmt.Errorf("Nous token refresh returned %d: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("nous token refresh returned %d: %s", resp.StatusCode, string(body))
 	}
 
 	bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
@@ -66,7 +66,7 @@ func refreshNous(ctx context.Context, p *Params) (*TokenResult, error) {
 		return nil, fmt.Errorf("decode Nous token response: %w", err)
 	}
 	if tokenData.AccessToken == "" {
-		return nil, fmt.Errorf("Nous token refresh returned no access_token")
+		return nil, fmt.Errorf("nous token refresh returned no access_token")
 	}
 
 	newRefreshToken := tokenData.RefreshToken
@@ -107,7 +107,7 @@ func mintNousAgentKey(ctx context.Context, client *http.Client, accessToken stri
 	if err != nil {
 		return ""
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return ""

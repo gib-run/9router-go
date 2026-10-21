@@ -2,6 +2,7 @@ package oauth
 
 import (
 	"bytes"
+	"context"
 	json "encoding/json/v2"
 	"fmt"
 	"io"
@@ -31,10 +32,10 @@ func nousStart() (map[string]any, error) {
 
 	data, status, err := postForm(nousDeviceCodeURL, form, nil)
 	if err != nil {
-		return nil, fmt.Errorf("Nous device code request failed: %w", err)
+		return nil, fmt.Errorf("nous device code request failed: %w", err)
 	}
 	if status != http.StatusOK {
-		return nil, fmt.Errorf("Nous device code request failed: HTTP %d %s", status, strVal(data, "error", "error_description", "message"))
+		return nil, fmt.Errorf("nous device code request failed: HTTP %d %s", status, strVal(data, "error", "error_description", "message"))
 	}
 
 	deviceCode := strVal(data, "device_code")
@@ -48,7 +49,7 @@ func nousStart() (map[string]any, error) {
 		verificationURIComplete = verificationURI
 	}
 	if deviceCode == "" || userCode == "" || verificationURI == "" {
-		return nil, fmt.Errorf("Nous device code response unusable (HTTP %d)", status)
+		return nil, fmt.Errorf("nous device code response unusable (HTTP %d)", status)
 	}
 
 	expiresIn := positiveIntOr(data, "expires_in", 900)
@@ -99,7 +100,7 @@ func nousPoll(code string) (deviceTokens, error) {
 	t.expiresIn = positiveIntOr(data, "expires_in", 3600)
 
 	// Mint agent key with fallback to access_token
-	agentKey, agentKeyID, agentKeyExpiresAt := nousMintAgentKey(t.access)
+	agentKey, agentKeyID, agentKeyExpiresAt := nousMintAgentKey(context.Background(), t.access)
 	apiKey := t.access
 	if agentKey != "" {
 		apiKey = agentKey
@@ -120,7 +121,10 @@ func nousPoll(code string) (deviceTokens, error) {
 	return t, nil
 }
 
-func nousMintAgentKey(accessToken string) (string, string, string) {
+func nousMintAgentKey(ctx context.Context, accessToken string) (string, string, string) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	payload := map[string]any{
 		"min_ttl_seconds": 7200,
 	}
@@ -129,7 +133,7 @@ func nousMintAgentKey(accessToken string) (string, string, string) {
 		return "", "", ""
 	}
 
-	req, err := http.NewRequest(http.MethodPost, nousAgentKeyURL, bytes.NewReader(raw))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, nousAgentKeyURL, bytes.NewReader(raw))
 	if err != nil {
 		return "", "", ""
 	}
@@ -141,7 +145,7 @@ func nousMintAgentKey(accessToken string) (string, string, string) {
 	if err != nil {
 		return "", "", ""
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return "", "", ""
