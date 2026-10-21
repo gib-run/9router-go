@@ -219,3 +219,38 @@ func TestEmptiedByImageDrop_ClientEmptyArrayIsNotReported(t *testing.T) {
 		t.Fatalf("an array reduced to nothing must be reported")
 	}
 }
+
+// The media type is whatever precedes the first ';', and the remainder must be
+// exactly "base64" (upstream: /^data:([^;]+);base64,([\s\S]+)$/). A parameter
+// such as ";charset=utf-8" makes the part unrepresentable: forwarding it as
+// media_type "image/png;charset=utf-8" is a 400 from Anthropic.
+func TestClaudeImageBlock_DataURIMediaType(t *testing.T) {
+	cases := []struct {
+		url       string
+		wantKeep  bool
+		wantMedia string
+	}{
+		{"data:image/png;base64,AAAA", true, "image/png"},
+		{"data:image/svg+xml;base64,AAAA", true, "image/svg+xml"},
+		{"data:image/png;charset=utf-8;base64,AAAA", false, ""},
+		{"data:image/png;name=a.png;base64,AAAA", false, ""},
+		{"data:image/png;base64,", false, ""},
+		{"data:;base64,AAAA", false, ""},
+		{"data:image/png,AAAA", false, ""},
+		{"data:image/png;BASE64,AAAA", false, ""},
+	}
+	for _, c := range cases {
+		block, ok := claudeImageBlock(map[string]any{"image_url": map[string]any{"url": c.url}})
+		if ok != c.wantKeep {
+			t.Errorf("%q: kept=%v, want %v (%#v)", c.url, ok, c.wantKeep, block)
+			continue
+		}
+		if !ok {
+			continue
+		}
+		got := block["source"].(map[string]any)["media_type"]
+		if got != c.wantMedia {
+			t.Errorf("%q: media_type=%v, want %q", c.url, got, c.wantMedia)
+		}
+	}
+}

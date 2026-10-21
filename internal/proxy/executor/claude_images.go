@@ -25,9 +25,14 @@ func claudeImageBlock(part map[string]any) (block map[string]any, ok bool) {
 	url = strings.TrimSpace(url)
 
 	if rest, found := strings.CutPrefix(url, "data:"); found {
+		// The media type runs up to the FIRST ';' and what follows must be exactly
+		// "base64", as in upstream's /^data:([^;]+);base64,([\s\S]+)$/. A
+		// parameter such as ";charset=utf-8" would otherwise end up inside
+		// media_type, which Anthropic rejects: the 400 this conversion removes,
+		// reached through the other door.
 		meta, data, found := strings.Cut(rest, ",")
-		mediaType, isBase64 := strings.CutSuffix(meta, ";base64")
-		if !found || !isBase64 || mediaType == "" || data == "" {
+		mediaType, params, _ := strings.Cut(meta, ";")
+		if !found || params != "base64" || mediaType == "" || data == "" {
 			return nil, false
 		}
 		return map[string]any{
