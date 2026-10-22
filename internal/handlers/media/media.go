@@ -700,21 +700,13 @@ func targetPrivate(ctx context.Context, host string) bool {
 }
 
 func (h *MediaHandler) forwardMediaRequest(w http.ResponseWriter, r *http.Request, body []byte, defaultModel, endpoint string) {
-	// Media input caps and request-level usage, at the one funnel every media
-	// lane passes through. This sits before model resolution, access control
-	// and connection selection on purpose: an oversized request must never
-	// reach an upstream call, because the call is what gets billed.
-	if _, refused := guardMediaInput(w, r.Header.Get("Content-Type"), body); refused {
-		return
-	}
-
 	model := defaultModel
 	var reqBody struct {
 		Model string `json:"model"`
 	}
 	if err := json.Unmarshal(body, &reqBody); err == nil && reqBody.Model != "" {
 		model = reqBody.Model
-	} else if strings.Contains(r.Header.Get("Content-Type"), "multipart/form-data") {
+	} else if isMultipartRequest(r) {
 		_, params, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 		if err == nil && params["boundary"] != "" {
 			mr := multipart.NewReader(bytes.NewReader(body), params["boundary"])
@@ -737,7 +729,19 @@ func (h *MediaHandler) forwardMediaRequest(w http.ResponseWriter, r *http.Reques
 	// STT, video, search, scrape and fetch, so gating here covers all of them
 	// with the same decision the chat lane uses. It runs before any connection
 	// selection so a denied model never reaches a provider.
+	//
+	// It also runs before the media caps. A cap answers 413 with the limit and
+	// the measured figure; sent to a key that may not call the model at all,
+	// that is a policy detail the key has no business learning — the answer it
+	// is owed is 403.
 	if !h.ChatH.EnforceModelAccess(w, r, model) {
+		return
+	}
+	// Media input caps and request-level usage, at the one funnel every media
+	// lane passes through. This still sits before model resolution and before
+	// connection selection, which is what matters: an oversized request never
+	// reaches an upstream call, because the call is what gets billed.
+	if _, refused := guardMediaInput(w, r.Header.Get("Content-Type"), body); refused {
 		return
 	}
 	modelInfo, err := h.ChatH.ResolveModel(model)
@@ -1018,7 +1022,7 @@ func (h *MediaHandler) forwardMediaRequest(w http.ResponseWriter, r *http.Reques
 	}
 
 	finalBody := body
-	if !strings.Contains(r.Header.Get("Content-Type"), "multipart/form-data") {
+	if !isMultipartRequest(r) {
 		finalBody = handlerutil.UpdateModelInBody(body, modelInfo.Model)
 	} else if model != "" && model != modelInfo.Model {
 		// Upstream parity (videoGeneration byte-exact multipart): never

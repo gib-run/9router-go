@@ -39,13 +39,26 @@ func lowerMediaCaps(t *testing.T, items int, itemBytes int64) {
 // part per entry, preserving order.
 func sttMultipart(t *testing.T, model string, files [][]byte) (*bytes.Buffer, string) {
 	t.Helper()
+	return mediaMultipart(t, model, "file", "clip", ".mp3", files)
+}
+
+// imageMultipart is sttMultipart with image parts, which is what the per-item
+// cap applies to: audio and video are exempt, so a fixture named *.mp3 cannot
+// test that cap at all.
+func imageMultipart(t *testing.T, model string, files [][]byte) (*bytes.Buffer, string) {
+	t.Helper()
+	return mediaMultipart(t, model, "image", "frame", ".png", files)
+}
+
+func mediaMultipart(t *testing.T, model, field, stem, ext string, files [][]byte) (*bytes.Buffer, string) {
+	t.Helper()
 	buf := &bytes.Buffer{}
 	mw := multipart.NewWriter(buf)
 	if err := mw.WriteField("model", model); err != nil {
 		t.Fatalf("write model field: %v", err)
 	}
 	for i, data := range files {
-		fw, err := mw.CreateFormFile("file", "clip"+string(rune('a'+i))+".mp3")
+		fw, err := mw.CreateFormFile(field, stem+string(rune('a'+i))+ext)
 		if err != nil {
 			t.Fatalf("create form file: %v", err)
 		}
@@ -103,13 +116,17 @@ func TestMediaInputCap_RefusesTooManyItems(t *testing.T) {
 
 // TestMediaInputCap_RefusesOversizedSingleItem is red before the cap exists: a
 // single part over the per-item ceiling is passed through.
+//
+// The fixture is an image because that is what the per-item cap bounds. Audio
+// and video are exempt — a 30MB recording is the documented STT input, not
+// abuse — so testing this cap with a .mp3 part tested nothing.
 func TestMediaInputCap_RefusesOversizedSingleItem(t *testing.T) {
 	lowerMediaCaps(t, 16, 4096)
 	var hits int32
 	upstream := newCountingUpstream(t, &hits)
 	defer upstream.Close()
 
-	body, ct := sttMultipart(t, "whisper-1", [][]byte{bytes.Repeat([]byte("a"), 8192)})
+	body, ct := imageMultipart(t, "dall-e-3", [][]byte{bytes.Repeat([]byte("a"), 8192)})
 
 	rec := runSTT(t, upstream.URL, body, ct)
 

@@ -24,6 +24,14 @@ import (
 // by FormName() == "file", so this is the audio it forwards.
 func noFilenameMultipart(t *testing.T, model string, payload []byte) (*bytes.Buffer, string) {
 	t.Helper()
+	return noFilenamePart(t, model, payload, "audio/mpeg")
+}
+
+// noFilenamePart is the same shape with a caller-chosen part media type, so the
+// filename-less bypass can be exercised on audio while the per-item cap — which
+// exempts audio — is exercised on an image.
+func noFilenamePart(t *testing.T, model string, payload []byte, partType string) (*bytes.Buffer, string) {
+	t.Helper()
 	buf := &bytes.Buffer{}
 	mw := multipart.NewWriter(buf)
 	if err := mw.WriteField("model", model); err != nil {
@@ -31,7 +39,7 @@ func noFilenameMultipart(t *testing.T, model string, payload []byte) (*bytes.Buf
 	}
 	h := make(textproto.MIMEHeader)
 	h.Set("Content-Disposition", `form-data; name="file"`)
-	h.Set("Content-Type", "audio/mpeg")
+	h.Set("Content-Type", partType)
 	fw, err := mw.CreatePart(h)
 	if err != nil {
 		t.Fatalf("create part: %v", err)
@@ -86,18 +94,19 @@ func TestMediaInputCap_CountsMediaPartWithoutFilename(t *testing.T) {
 }
 
 // TestMediaInputCap_RefusesOversizedFilenamelessPart is the size half of the
-// same bypass: one part over the per-item ceiling, still no filename.
+// same bypass: one part over the per-item ceiling, still no filename. The part
+// is an image because the per-item cap bounds images; audio is exempt.
 func TestMediaInputCap_RefusesOversizedFilenamelessPart(t *testing.T) {
 	lowerMediaCaps(t, 16, 4096)
 	var hits int32
 	upstream := newCountingUpstream(t, &hits)
 	defer upstream.Close()
 
-	body, ct := noFilenameMultipart(t, "whisper-1", bytes.Repeat([]byte("a"), 8192))
+	body, ct := noFilenamePart(t, "dall-e-3", bytes.Repeat([]byte("a"), 8192), "image/png")
 	rec := runSTT(t, upstream.URL, body, ct)
 
 	if rec.Code != http.StatusRequestEntityTooLarge {
-		t.Fatalf("8KB filename-less file part with 4KB cap: expected 413, got %d: %s", rec.Code, rec.Body.String())
+		t.Fatalf("8KB filename-less image part with 4KB cap: expected 413, got %d: %s", rec.Code, rec.Body.String())
 	}
 	if got := atomic.LoadInt32(&hits); got != 0 {
 		t.Errorf("oversized part reached upstream %d time(s)", got)
@@ -118,9 +127,12 @@ func TestMediaInputCap_CountsBareBase64ImageFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("measure: %v", err)
 	}
-	if use.Items != 1 || use.Bytes != int64(len(payload)) {
-		t.Errorf("bare base64 in \"image\": measured %d item(s) / %d bytes, want 1 / %d",
-			use.Items, use.Bytes, len(payload))
+	// The measurement is the decoded size, not the encoded text: DecodedLen
+	// ignores the '=' padding this payload carries, base64DecodedLen does not.
+	wantBytes := int64(8 << 10)
+	if use.Items != 1 || use.Bytes != wantBytes {
+		t.Errorf("bare base64 in \"image\": measured %d item(s) / %d bytes, want 1 / %d (decoded)",
+			use.Items, use.Bytes, wantBytes)
 	}
 
 	// The list form the image edit lanes accept.
@@ -147,32 +159,23 @@ func TestMediaInputCap_IgnoresProseInImageField(t *testing.T) {
 	}
 }
 
-// TestMediaInputCap_RefusesTotalBytesOverCeiling covers MediaMaxTotalBytes,
-// which had no test at all: each item fits, the count fits, the sum does not.
-func TestMediaInputCap_RefusesTotalBytesOverCeiling(t *testing.T) {
-	prevTotal := MediaMaxTotalBytes
-	MediaMaxTotalBytes = 2048
-	t.Cleanup(func() { MediaMaxTotalBytes = prevTotal })
-	lowerMediaCaps(t, 16, 1<<20)
-
-	var hits int32
-	upstream := newCountingUpstream(t, &hits)
-	defer upstream.Close()
-
-	body, ct := sttMultipart(t, "whisper-1", [][]byte{
-		bytes.Repeat([]byte("a"), 1500),
-		bytes.Repeat([]byte("b"), 1500),
-	})
-	rec := runSTT(t, upstream.URL, body, ct)
-
-	if rec.Code != http.StatusRequestEntityTooLarge {
-		t.Fatalf("3KB total with a 2KB sum cap: expected 413, got %d: %s", rec.Code, rec.Body.String())
+// TestMediaInputCap_NoSumCap pins the decision that replaced MediaMaxTotalBytes.
+// The old sum cap was 64MB and refused the 30-60 minute recording that
+// middleware.MediaMaxBodySize was raised to 128MB to accept; raising it to the
+// ceiling would have made it a number that can never fire. The item count and
+// the transport ceiling bound a request's total on their own, so the cap is
+// gone and this test is what keeps it gone: a request whose media sums far past
+// the old 64MB and whose items each fit is accepted.
+func TestMediaInputCap_NoSumCap(t *testing.T) {
+	if _, ok := any(MediaMaxItems).(int); !ok {
+		t.Fatal("unreachable")
 	}
-	if got := atomic.LoadInt32(&hits); got != 0 {
-		t.Errorf("over-sum request reached upstream %d time(s)", got)
-	}
-	if !strings.Contains(rec.Body.String(), "of media") {
-		t.Errorf("413 does not name the sum cap: %s", rec.Body.String())
+	// Two 40MB audio parts: over the old 64MB sum cap, under the 128MB
+	// transport ceiling, each under the per-item cap.
+	const part = 40 << 20
+	use := mediaInputUse{Items: 2, Bytes: 2 * part}
+	if msg := use.capViolation(); msg != "" {
+		t.Fatalf("a 80MB request of two audio items must not be refused by a sum cap: %s", msg)
 	}
 }
 
@@ -186,32 +189,27 @@ func TestMediaInputCap_RefusesTotalBytesOverCeiling(t *testing.T) {
 // request through; both read as "the cap works" from the outside.
 func TestMediaInputCap_BoundaryIsExact(t *testing.T) {
 	for _, tc := range []struct {
-		name   string
-		items  int
-		itemB  int64
-		totalB int64
-		files  []int
-		want   int
-		why    string
+		name  string
+		items int
+		itemB int64
+		files []int
+		want  int
+		why   string
 	}{
-		{"items exactly at cap", 4, 1 << 20, 1 << 20, []int{1, 1, 1, 1}, http.StatusOK,
+		{"items exactly at cap", 4, 1 << 20, []int{1, 1, 1, 1}, http.StatusOK,
 			"four items with a cap of four is legal"},
-		{"items one over cap", 4, 1 << 20, 1 << 20, []int{1, 1, 1, 1, 1}, http.StatusRequestEntityTooLarge,
+		{"items one over cap", 4, 1 << 20, []int{1, 1, 1, 1, 1}, http.StatusRequestEntityTooLarge,
 			"five items with a cap of four is one over"},
-		{"item exactly at cap", 16, 1024, 1 << 20, []int{1024}, http.StatusOK,
+		{"item exactly at cap", 16, 1024, []int{1024}, http.StatusOK,
 			"an item exactly the cap size is legal"},
-		{"item one byte over cap", 16, 1024, 1 << 20, []int{1025}, http.StatusRequestEntityTooLarge,
+		{"item one byte over cap", 16, 1024, []int{1025}, http.StatusRequestEntityTooLarge,
 			"an item one byte over the cap is refused"},
-		{"total exactly at cap", 16, 1 << 20, 2048, []int{1024, 1024}, http.StatusOK,
-			"a sum exactly the cap is legal"},
-		{"total one byte over cap", 16, 1 << 20, 2048, []int{1024, 1025}, http.StatusRequestEntityTooLarge,
-			"a sum one byte over the cap is refused"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			prevItems, prevItem, prevTotal := MediaMaxItems, MediaMaxItemBytes, MediaMaxTotalBytes
-			MediaMaxItems, MediaMaxItemBytes, MediaMaxTotalBytes = tc.items, tc.itemB, tc.totalB
+			prevItems, prevItem := MediaMaxItems, MediaMaxItemBytes
+			MediaMaxItems, MediaMaxItemBytes = tc.items, tc.itemB
 			t.Cleanup(func() {
-				MediaMaxItems, MediaMaxItemBytes, MediaMaxTotalBytes = prevItems, prevItem, prevTotal
+				MediaMaxItems, MediaMaxItemBytes = prevItems, prevItem
 			})
 
 			var hits int32
@@ -222,7 +220,15 @@ func TestMediaInputCap_BoundaryIsExact(t *testing.T) {
 			for i, n := range tc.files {
 				files[i] = bytes.Repeat([]byte("a"), n)
 			}
-			body, ct := sttMultipart(t, "whisper-1", files)
+			// An image when the per-item cap is what is under test: audio and
+			// video are exempt from it, so an .mp3 fixture would pass at any
+			// size and the case would assert nothing.
+			build := sttMultipart
+			model := "whisper-1"
+			if tc.itemB < 1<<20 {
+				build, model = imageMultipart, "dall-e-3"
+			}
+			body, ct := build(t, model, files)
 			rec := runSTT(t, upstream.URL, body, ct)
 
 			if rec.Code != tc.want {
