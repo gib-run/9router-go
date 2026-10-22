@@ -174,6 +174,71 @@ func TestComboPresetsCreatedComboIsRoutable(t *testing.T) {
 	}
 }
 
+// TestComboPresetsCursorSeedsRegistryModels pins concrete cursor ids over HTTP.
+// Every other cursor assertion in this file counts items, so a mutation that
+// replaced a served name's model with an id no provider serves would still pass
+// them; these four would not.
+func TestComboPresetsCursorSeedsRegistryModels(t *testing.T) {
+	env := newEnv(t)
+
+	got := getPresetPreview(t, env, "cursor")
+	for _, want := range []struct{ name, model string }{
+		{"default", "cu/default"},
+		{"claude-4.5-opus", "cu/claude-4.5-opus"},
+		{"gpt-5.2-codex", "cu/gpt-5.2-codex"},
+		{"gpt-5.3-codex", "cu/gpt-5.3-codex"},
+	} {
+		item, ok := lo.Find(got.Items, func(i presetItem) bool { return i.Name == want.name })
+		if !ok {
+			t.Errorf("cursor presets have no %q item; names = %v", want.name, presetNames(got.Items))
+			continue
+		}
+		if len(item.Models) != 1 || item.Models[0] != want.model {
+			t.Errorf("preset %q seeded with %v, want [%s]", want.name, item.Models, want.model)
+		}
+	}
+}
+
+// TestComboPresetsCursorCreateStoresSeededModels covers the create path for the
+// cursor source, which the claude-only create test leaves untouched: the stored
+// row must carry the prefixed model the preview served.
+func TestComboPresetsCursorCreateStoresSeededModels(t *testing.T) {
+	env := newEnv(t)
+
+	if res := env.Post(t, "/api/combos/presets", map[string]any{"source": "cursor"}); res.Status != http.StatusOK {
+		t.Fatalf("POST cursor presets = %d, want 200 (body: %s)", res.Status, truncate(res.Body))
+	}
+
+	res := env.Get(t, "/api/combos")
+	if res.Status != http.StatusOK {
+		t.Fatalf("GET /api/combos = %d, want 200 (body: %s)", res.Status, truncate(res.Body))
+	}
+	var combos []struct {
+		Name   string `json:"name"`
+		Models string `json:"models"`
+	}
+	res.Decode(t, &combos)
+
+	stored := make(map[string]string, len(combos))
+	for _, c := range combos {
+		stored[c.Name] = c.Models
+	}
+	for _, want := range []struct{ name, models string }{
+		{"default", `["cu/default"]`},
+		{"gpt-5.2-codex", `["cu/gpt-5.2-codex"]`},
+		{"gpt-5.3-codex", `["cu/gpt-5.3-codex"]`},
+	} {
+		got, ok := stored[want.name]
+		if !ok {
+			t.Errorf("created cursor combos have no %q entry", want.name)
+			continue
+		}
+		if got != want.models {
+			t.Errorf("combo %q models = %s, want %s", want.name, got, want.models)
+		}
+	}
+}
+
 // TestComboPresetsRejectUnknownSource covers the two negative cases the spec
 // names: an unknown source and an empty one both answer 400, so the dashboard
 // can tell "bad request" from "nothing to create".
