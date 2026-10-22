@@ -103,8 +103,10 @@ func ValidatePrefetchURL(rawURL string) (int, error) {
 		return StatusPrefetchBadRequest, ErrPrefetchSSRFBlocked
 	}
 
-	// Check if hostname is a literal IP address
-	ip := net.ParseIP(hostname)
+	// Check if hostname is a literal IP address. netguard.ParseIP strips an
+	// IPv6 zone first: "::1%lo" names the same destination as "::1", but
+	// net.ParseIP answers nil for it and the check below would be skipped.
+	ip := netguard.ParseIP(hostname)
 	if ip != nil && netguard.IsPrivateOrReserved(ip) {
 		return StatusPrefetchBadRequest, ErrPrefetchSSRFBlocked
 	}
@@ -330,21 +332,31 @@ func walkImageBlocks(ctx context.Context, client *http.Client, opts PrefetchOpti
 	}
 }
 
+// rewriteOpenAIImage handles both shapes OpenAI accepts for `image_url`: the
+// object form ({"url": "…"}) and the bare string. The string form is short
+// enough to look like a typo and is the shape most clients emit, so skipping it
+// left the remote URL in place for exactly the requests that would have used
+// it.
 func rewriteOpenAIImage(ctx context.Context, client *http.Client, opts PrefetchOptions, block map[string]any, budget *int, changed *bool) {
-	iu, ok := block["image_url"].(map[string]any)
-	if !ok {
-		return
+	switch iu := block["image_url"].(type) {
+	case string:
+		if !isRemoteImageURL(iu) {
+			return
+		}
+		if dataURL, ok := prefetchOne(ctx, client, opts, iu, budget); ok {
+			block["image_url"] = dataURL
+			*changed = true
+		}
+	case map[string]any:
+		raw, ok := iu["url"].(string)
+		if !ok || !isRemoteImageURL(raw) {
+			return
+		}
+		if dataURL, ok := prefetchOne(ctx, client, opts, raw, budget); ok {
+			iu["url"] = dataURL
+			*changed = true
+		}
 	}
-	raw, ok := iu["url"].(string)
-	if !ok || !isRemoteImageURL(raw) {
-		return
-	}
-	dataURL, ok := prefetchOne(ctx, client, opts, raw, budget)
-	if !ok {
-		return
-	}
-	iu["url"] = dataURL
-	*changed = true
 }
 
 func rewriteResponsesImage(ctx context.Context, client *http.Client, opts PrefetchOptions, block map[string]any, budget *int, changed *bool) {
@@ -507,7 +519,7 @@ func isLiteralLoopbackHost(host string) bool {
 	if strings.EqualFold(host, "localhost") {
 		return true
 	}
-	ip := net.ParseIP(host)
+	ip := netguard.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
 }
 
@@ -523,7 +535,11 @@ func newPrefetchClient(allowLoopback bool) *http.Client {
 			if err != nil {
 				host = address
 			}
-			ip := net.ParseIP(host)
+			// netguard.ParseIP strips an IPv6 zone. Without it the zoned
+			// literal parses to nil, the hook returns nil ("not an address"),
+			// and the dial reaches a loopback or metadata target the
+			// pre-flight check was supposed to have refused.
+			ip := netguard.ParseIP(host)
 			if ip == nil {
 				return nil
 			}

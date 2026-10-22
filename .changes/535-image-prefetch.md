@@ -41,11 +41,25 @@ request forgery surface:
   A GIF served as `image/png` is labelled `image/gif`, because handing the
   provider a label that contradicts the bytes is a lie it will decode wrongly.
 
+Both `image_url` shapes OpenAI accepts are rewritten: the object form
+(`{"url": "…"}`) and the bare string. The string form is the one most clients
+emit, and skipping it left exactly the requests that would have used it holding
+a dead URL.
+
 Only the targets that need it pay the download. `internal/handlers/chat` knows
 which providers cannot fetch a URL themselves — gemini, gemini-cli, vertex,
 antigravity, ollama, kiro, commandcode, plus any provider configured
 `gemini-native` — and the rewrite runs only for those. An OpenAI-compatible
-target keeps its remote URLs and pays nothing.
+target keeps its remote URLs and pays nothing. A provider whose *model* rides a
+different lane is covered by the model's declared `TargetFormat`, so
+opencode-go's `gemini-4-argon-contributor` — translated by
+`TranslateOpenAIToGemini`, an id absent from the provider table — gets the same
+treatment. Upstream (`open-sse/translator/concerns/prefetch.js`) keys that set
+by wire format; this table is still keyed by provider id because
+`ProviderConfig.Format` here carries only the Gemini variants and `"claude"`,
+with no `kiro` or `commandcode` value to compare against, so the id is where
+those providers' wire format is actually recorded. That divergence is deliberate
+and is stated in the code.
 
 The rewrite preserves everything it does not touch. A plain
 `map[string]any` round-trip reads every number as `float64`, which turned
@@ -58,3 +72,30 @@ proxy's own SSRF guard already uses, rather than the local copy this change
 first carried. The two copies had drifted once and the disagreement left
 `100.100.100.200` reachable through this path; one predicate, one place to fix
 it.
+
+`netguard.ParseIP` joins it for the same reason. `net.ParseIP` answers nil for a
+zoned literal (`::1%lo`, `fd00:ec2::254%eth0`), and every guard in this
+repository reads nil as "not an address — allow it". `https://[::1%25lo]:PORT/`
+was therefore fetched and inlined, through the pre-flight check and through the
+dial-time hook alike. A zone names the interface a packet leaves by; it is not a
+different destination. The proxy's own dialer had the same hole and now calls
+the same helper.
+
+### Memory
+
+Measured on the 1 vCPU box, 4 images of 15 MB each inlined into one request
+(`runtime.MemStats`, prefetch in isolation): output 80 MB, `TotalAlloc` 819.8 MB,
+`HeapAlloc` 191.3 MB, `Sys` 575.8 MB. That is the price of the feature at the
+`MaxImages` default with the byte cap saturated — six times the payload in
+transient allocation, all of it released. A target that never reaches
+`wantsInlineImages` allocates and downloads nothing, and the 15 MB raw / 20 MB
+base64 cap bounds one image regardless of what the caller asks for.
+
+### Known limitation
+
+Nested numbers inside an image-bearing message are still read as `float64` by
+the per-item decode, so a large integer that deep loses precision — the same
+thing the unmodified request path does (`handleSingleModel` unmarshals the whole
+body into `map[string]any` before this runs). This change is not a regression
+against `main`; top-level sibling fields are the ones it preserves byte for
+byte.

@@ -2,8 +2,11 @@ package translator
 
 import (
 	"context"
+	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -170,5 +173,78 @@ func TestPrefetch_FollowsThreeRedirects(t *testing.T) {
 	out := string(PrefetchInlineImages(context.Background(), body, PrefetchOptions{AllowLoopback: true}))
 	if !strings.Contains(out, "data:image/png;base64,") {
 		t.Fatalf("three redirects must be followed, the image was not inlined:\n%s", out)
+	}
+}
+
+// TestPrefetch_BlocksZonedIPv6Literal pins the zone-suffix hole. net.ParseIP
+// answers nil for "::1%lo" and "fd00:ec2::254%eth0", so the literal-IP check
+// read a zoned address as "not an address" and skipped the guard entirely:
+// https://[::1%25lo]:PORT/a.png was fetched and inlined. A zone names the
+// interface a packet leaves by, not a different destination.
+func TestPrefetch_BlocksZonedIPv6Literal(t *testing.T) {
+	for _, raw := range []string{
+		"https://[::1%25lo]:41249/a.png",
+		"https://[fd00:ec2::254%25eth0]/a.png",
+		"https://[fe80::1%25eth0]/a.png",
+	} {
+		if status, err := ValidatePrefetchURL(raw); err == nil {
+			t.Errorf("%s was allowed (status %d); a zone must not exempt a private address", raw, status)
+		}
+	}
+}
+
+// TestPrefetch_DialGuardBlocksZonedLoopback reaches the second half of the same
+// guard. The dial-time hook is the boundary that survives DNS rebinding, so it
+// has to refuse a zoned literal on its own, whatever the pre-flight check did.
+func TestPrefetch_DialGuardBlocksZonedLoopback(t *testing.T) {
+	ln, err := net.Listen("tcp", "[::1]:0")
+	if err != nil {
+		t.Skipf("no IPv6 loopback on this host: %v", err)
+	}
+	defer ln.Close()
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			_ = c.Close()
+		}
+	}()
+	port := ln.Addr().(*net.TCPAddr).Port
+
+	client := newPrefetchClient(false)
+	transport := client.Transport.(*http.Transport)
+	conn, err := transport.DialContext(context.Background(), "tcp",
+		net.JoinHostPort("::1%lo", strconv.Itoa(port)))
+	if conn != nil {
+		_ = conn.Close()
+	}
+	if !errors.Is(err, ErrPrefetchSSRFBlocked) {
+		t.Fatalf("zoned loopback literal dialled: err = %v, want ErrPrefetchSSRFBlocked", err)
+	}
+}
+
+// TestPrefetch_RewritesStringImageURL pins the second OpenAI wire shape. The
+// `image_url` key is either an object carrying a `url` field or a bare string,
+// and the bare string — the shorter and more common form — was skipped, so the
+// remote URL still reached a provider that cannot fetch it. Upstream handles
+// both (open-sse/translator/concerns/prefetch.js).
+func TestPrefetch_RewritesStringImageURL(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write(tinyPNG)
+	}))
+	defer srv.Close()
+
+	body := []byte(`{"model":"m","messages":[{"role":"user","content":[` +
+		`{"type":"image_url","image_url":"` + srv.URL + `/a.png"}]}]}`)
+
+	out := string(PrefetchInlineImages(context.Background(), body, PrefetchOptions{AllowLoopback: true}))
+	if strings.Contains(out, srv.URL) {
+		t.Fatalf("string-form image_url kept its remote URL: %s", out)
+	}
+	if !strings.Contains(out, "data:image/png;base64,") {
+		t.Fatalf("expected an inline data URL in the string-form block, got: %s", out)
 	}
 }

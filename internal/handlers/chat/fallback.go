@@ -582,7 +582,7 @@ func (h *ChatHandler) tryForwardWithConnection(f forwardRequestParams) error {
 	// the URL as a dead string. Done here rather than inside a translator
 	// because this is the one place that knows both the target provider and the
 	// client's own body shape. Fail-open: any refusal leaves the body as-is.
-	pipedBody = prefetchImagesForTarget(ctx, provider, providerCfg, pipedBody)
+	pipedBody = prefetchImagesForTarget(ctx, provider, model, providerCfg, pipedBody)
 
 	start := time.Now()
 	metrics := &streamMetrics{}
