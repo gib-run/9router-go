@@ -207,7 +207,9 @@ func (r *Repo) DeleteProviderNode(ctx context.Context, id string) error {
 	if _, err := tx.ExecContext(ctx, "DELETE FROM providerNodes WHERE id = ?", id); err != nil {
 		return fmt.Errorf("delete provider node %s: %w", id, err)
 	}
-	_, _ = tx.ExecContext(ctx, "DELETE FROM providerConnections WHERE provider = ?", id)
+	if _, err := tx.ExecContext(ctx, "DELETE FROM providerConnections WHERE provider = ?", id); err != nil {
+		return fmt.Errorf("delete provider node %s: delete connections: %w", id, err)
+	}
 
 	if err := pruneCustomModels(ctx, tx, id); err != nil {
 		return fmt.Errorf("delete provider node %s: prune custom models: %w", id, err)
@@ -219,9 +221,10 @@ func (r *Repo) DeleteProviderNode(ctx context.Context, id string) error {
 	return nil
 }
 
-// pruneCustomModels removes any customModels kv rows whose key starts with the node's alias.
+// pruneCustomModels removes any customModels kv rows whose key starts with the
+// node's alias or whose JSON value declares the node as its providerAlias.
 func pruneCustomModels(ctx context.Context, tx *sql.Tx, id string) error {
-	rows, err := tx.QueryContext(ctx, `SELECT key FROM kv WHERE scope = 'customModels'`)
+	rows, err := tx.QueryContext(ctx, `SELECT key, value FROM kv WHERE scope = 'customModels'`)
 	if err != nil {
 		return err
 	}
@@ -229,12 +232,16 @@ func pruneCustomModels(ctx context.Context, tx *sql.Tx, id string) error {
 
 	var toDelete []string
 	for rows.Next() {
-		var key string
-		if err := rows.Scan(&key); err != nil {
+		var key, raw string
+		if err := rows.Scan(&key, &raw); err != nil {
 			return err
 		}
-		alias, _, ok := splitCustomModelKey(key)
-		if ok && alias == id {
+		keyAlias, _, ok := splitCustomModelKey(key)
+		if !ok {
+			keyAlias = ""
+		}
+		valAlias := customModelValueAlias(raw)
+		if keyAlias == id || valAlias == id {
 			toDelete = append(toDelete, key)
 		}
 	}
@@ -251,4 +258,15 @@ func pruneCustomModels(ctx context.Context, tx *sql.Tx, id string) error {
 		}
 	}
 	return nil
+}
+
+// customModelValueAlias extracts the providerAlias from the JSON-encoded value,
+// returning an empty string if unmarshaling fails or providerAlias is absent.
+func customModelValueAlias(value string) string {
+	var decoded map[string]any
+	if err := json.Unmarshal([]byte(value), &decoded); err != nil {
+		return ""
+	}
+	alias, _ := decoded["providerAlias"].(string)
+	return alias
 }

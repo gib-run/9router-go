@@ -10,8 +10,11 @@ func TestDeleteProviderNode(t *testing.T) {
 		setupNodes     []string          // node IDs to create
 		setupConns     []string          // provider IDs for connections to create
 		setupKV        map[string]string // key -> value in scope 'customModels'
+		setupTrigger   string            // optional SQL trigger to install before delete
 		deleteID       string
+		wantErr        bool     // whether DeleteProviderNode is expected to fail
 		wantNodeGone   []string // node IDs that should not exist
+		wantNodeExist  []string // node IDs that should still exist
 		wantConnsGone  []string // provider IDs whose connections should be deleted
 		wantConnsExist []string // provider IDs whose connections should still exist
 		wantKVExist    []string // KV keys that should still exist
@@ -45,7 +48,7 @@ func TestDeleteProviderNode(t *testing.T) {
 			wantKVGone:   []string{"node-a/my-custom-model"},
 		},
 		{
-			name:       "unparseable key survives",
+			name:       "unparseable key naming target node in value is pruned",
 			setupNodes: []string{"node-a"},
 			setupKV: map[string]string{
 				"node-a":            `{"providerAlias":"node-a"}`,
@@ -53,8 +56,17 @@ func TestDeleteProviderNode(t *testing.T) {
 			},
 			deleteID:     "node-a",
 			wantNodeGone: []string{"node-a"},
-			wantKVExist:  []string{"node-a"},
-			wantKVGone:   []string{"node-a|valid|chat"},
+			wantKVGone:   []string{"node-a", "node-a|valid|chat"},
+		},
+		{
+			name:       "unparseable key naming different node in value survives",
+			setupNodes: []string{"node-a", "node-b"},
+			setupKV: map[string]string{
+				"unparseable-node": `{"providerAlias":"node-b"}`,
+			},
+			deleteID:     "node-a",
+			wantNodeGone: []string{"node-a"},
+			wantKVExist:  []string{"unparseable-node"},
 		},
 		{
 			name:       "unknown node id is no-op and prunes nothing",
@@ -67,6 +79,49 @@ func TestDeleteProviderNode(t *testing.T) {
 			wantNodeGone: nil,
 			wantKVExist:  []string{"node-unknown|ghost|chat", "node-unknown/slash-model"},
 			wantKVGone:   nil,
+		},
+		{
+			name:       "orphan custom model whose value names target node is pruned even when key alias differs",
+			setupNodes: []string{"node-a", "node-b"},
+			setupKV: map[string]string{
+				"node-b|disputed|chat": `{"providerAlias":"node-a","modelId":"disputed"}`,
+			},
+			deleteID:     "node-a",
+			wantNodeGone: []string{"node-a"},
+			wantKVGone:   []string{"node-b|disputed|chat"},
+		},
+		{
+			name:       "row whose key and value both name a different node is left intact",
+			setupNodes: []string{"node-a", "node-b"},
+			setupKV: map[string]string{
+				"node-b|other|chat": `{"providerAlias":"node-b","modelId":"other"}`,
+			},
+			deleteID:     "node-a",
+			wantNodeGone: []string{"node-a"},
+			wantKVExist:  []string{"node-b|other|chat"},
+			wantKVGone:   nil,
+		},
+		{
+			name:       "invalid JSON value does not break prune and key match still prunes while other survives",
+			setupNodes: []string{"node-a", "node-b"},
+			setupKV: map[string]string{
+				"node-a|broken|chat":   `{not-valid-json`,
+				"node-b|survivor|chat": `{not-valid-json`,
+			},
+			deleteID:     "node-a",
+			wantNodeGone: []string{"node-a"},
+			wantKVExist:  []string{"node-b|survivor|chat"},
+			wantKVGone:   []string{"node-a|broken|chat"},
+		},
+		{
+			name:           "failing providerConnections delete rolls back node delete and returns error",
+			setupNodes:     []string{"node-a"},
+			setupConns:     []string{"node-a"},
+			setupTrigger:   "CREATE TRIGGER fail_conn_delete BEFORE DELETE ON providerConnections BEGIN SELECT RAISE(ABORT, 'forced connection delete failure'); END;",
+			deleteID:       "node-a",
+			wantErr:        true,
+			wantNodeExist:  []string{"node-a"},
+			wantConnsExist: []string{"node-a"},
 		},
 	}
 
@@ -97,8 +152,15 @@ func TestDeleteProviderNode(t *testing.T) {
 				}
 			}
 
-			if err := repo.DeleteProviderNode(t.Context(), tc.deleteID); err != nil {
-				t.Fatalf("DeleteProviderNode(%q) error = %v", tc.deleteID, err)
+			if tc.setupTrigger != "" {
+				if _, err := repo.RawDB().Exec(tc.setupTrigger); err != nil {
+					t.Fatalf("setup trigger: %v", err)
+				}
+			}
+
+			err := repo.DeleteProviderNode(t.Context(), tc.deleteID)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("DeleteProviderNode(%q) error = %v, wantErr %v", tc.deleteID, err, tc.wantErr)
 			}
 
 			for _, nodeID := range tc.wantNodeGone {
@@ -108,6 +170,16 @@ func TestDeleteProviderNode(t *testing.T) {
 				}
 				if node != nil {
 					t.Errorf("node %q still exists, expected deleted", nodeID)
+				}
+			}
+
+			for _, nodeID := range tc.wantNodeExist {
+				node, _, err := repo.GetProviderNodeByID(nodeID)
+				if err != nil {
+					t.Errorf("GetProviderNodeByID(%q) error = %v", nodeID, err)
+				}
+				if node == nil {
+					t.Errorf("node %q expected to exist, got nil", nodeID)
 				}
 			}
 
