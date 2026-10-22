@@ -48,11 +48,20 @@ func TestThoughtSignatureStore_BoundsRowsAtWriteTime(t *testing.T) {
 	t.Cleanup(func() { SetThoughtSignaturePersistence(nil) })
 	SetThoughtSignaturePersistence(p)
 
+	// Written in batches with a drain between them, which is what a tool-heavy
+	// client actually produces: the writer keeps up, so no row is refused
+	// because the queue was full. Dropping every write that a 1024-slot queue
+	// cannot absorb is the documented fail-open path (§3.3), not a missing
+	// bound, and a single un-drained dump measures that path instead of this
+	// one — it never reaches the trim threshold at all.
 	const calls = trimEveryWrites * 3
-	for i := 0; i < calls; i++ {
-		StoreGeminiThoughtSignature("call_bound_"+strconv.Itoa(i), "SIG_BOUND", "sess_bound", "gemini-2.5-pro")
+	const batch = 100
+	for i := 0; i < calls; i += batch {
+		for j := i; j < i+batch && j < calls; j++ {
+			StoreGeminiThoughtSignature("call_bound_"+strconv.Itoa(j), "SIG_BOUND", "sess_bound", "gemini-2.5-pro")
+		}
+		globalThoughtSigStore.drainSignatureWrites()
 	}
-	globalThoughtSigStore.drainSignatureWrites()
 
 	var rows int
 	if err := repo.RawDB().QueryRow(`SELECT COUNT(1) FROM thoughtSignatures`).Scan(&rows); err != nil {
