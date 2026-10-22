@@ -25,19 +25,25 @@ func TestUsageStats_InputTokensFallback(t *testing.T) {
 	const cleanKey = "sk-8b71f86e0a1f2fb5-nhz496-cfa1c800"
 	const whitespaceKey = "  " + cleanKey + "  "
 	const unknownKey = "  sk-unknown-user-machine1-tail9999  "
+	const shortKey = "  abcdefgh  "
 
 	if err := repo.CreateApiKey("id-1", cleanKey, "Team Laptop", "machine-1"); err != nil {
 		t.Fatalf("create api key: %v", err)
 	}
 
-	now := time.Now().UTC()
+	now := time.Now()
+	midnight := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	if since := now.Sub(midnight); since < time.Hour {
+		t.Skipf("local midnight is only %s ago: row at -1h falls outside today", since)
+	}
+
 	// Row 1: promptTokens/completionTokens are 0, tokens JSON carries input_tokens & output_tokens,
 	// apiKey has surrounding whitespace.
 	tokensBlob1 := `{"input_tokens":150,"output_tokens":75}`
 	_, err := repo.RawDB().Exec(
 		`INSERT INTO usageHistory (timestamp, provider, model, connectionId, apiKey, endpoint, promptTokens, completionTokens, cost, status, tokens)
 		 VALUES (?, ?, ?, ?, ?, '/v1/chat/completions', 0, 0, 0.05, 'success', ?)`,
-		now.Add(-1*time.Hour).Format(time.RFC3339), "gemini", "gemini-2.5-flash", "conn-1", whitespaceKey, tokensBlob1,
+		now.Add(-1*time.Hour).UTC().Format(time.RFC3339), "gemini", "gemini-2.5-flash", "conn-1", whitespaceKey, tokensBlob1,
 	)
 	if err != nil {
 		t.Fatalf("insert usageHistory row 1: %v", err)
@@ -48,10 +54,22 @@ func TestUsageStats_InputTokensFallback(t *testing.T) {
 	_, err = repo.RawDB().Exec(
 		`INSERT INTO usageHistory (timestamp, provider, model, connectionId, apiKey, endpoint, promptTokens, completionTokens, cost, status, tokens)
 		 VALUES (?, ?, ?, ?, ?, '/v1/embeddings', 0, 0, 0.01, 'success', ?)`,
-		now.Add(-30*time.Minute).Format(time.RFC3339), "openai", "text-embedding-3-small", "conn-2", unknownKey, tokensBlob2,
+		now.Add(-30*time.Minute).UTC().Format(time.RFC3339), "openai", "text-embedding-3-small", "conn-2", unknownKey, tokensBlob2,
 	)
 	if err != nil {
 		t.Fatalf("insert usageHistory row 2: %v", err)
+	}
+
+	// Row 3: short key with surrounding whitespace; tests upstream charAt(0)+"***" masking
+	// and verifies apiKeyKey does not leak the raw key.
+	tokensBlob3 := `{"prompt_tokens":10,"completion_tokens":5}`
+	_, err = repo.RawDB().Exec(
+		`INSERT INTO usageHistory (timestamp, provider, model, connectionId, apiKey, endpoint, promptTokens, completionTokens, cost, status, tokens)
+		 VALUES (?, ?, ?, ?, ?, '/v1/chat/completions', 10, 5, 0.01, 'success', ?)`,
+		now.Add(-15*time.Minute).UTC().Format(time.RFC3339), "openai", "gpt-4o", "conn-3", shortKey, tokensBlob3,
+	)
+	if err != nil {
+		t.Fatalf("insert usageHistory row 3: %v", err)
 	}
 
 	for _, period := range []string{"24h", "today"} {
@@ -68,11 +86,11 @@ func TestUsageStats_InputTokensFallback(t *testing.T) {
 				t.Fatalf("decode response: %v", err)
 			}
 
-			if resp.TotalPromptTokens != 200 {
-				t.Errorf("TotalPromptTokens = %d, want 200 (150+50)", resp.TotalPromptTokens)
+			if resp.TotalPromptTokens != 210 {
+				t.Errorf("TotalPromptTokens = %d, want 210 (150+50+10)", resp.TotalPromptTokens)
 			}
-			if resp.TotalCompletionTokens != 100 {
-				t.Errorf("TotalCompletionTokens = %d, want 100 (75+25)", resp.TotalCompletionTokens)
+			if resp.TotalCompletionTokens != 105 {
+				t.Errorf("TotalCompletionTokens = %d, want 105 (75+25+5)", resp.TotalCompletionTokens)
 			}
 
 			// Check ByProvider
@@ -84,9 +102,18 @@ func TestUsageStats_InputTokensFallback(t *testing.T) {
 			// Check ByApiKey: whitespaceKey should resolve to "Team Laptop"
 			foundNamedKey := false
 			foundUnknownKey := false
+			foundShortKey := false
 			expectedUnknownMask := handlerutil.MaskAPIKey(unknownKey)
 
 			for _, item := range resp.ByApiKey {
+				// Verify apiKeyKey is masked and never leaks raw key
+				if item.ApiKeyKey != item.ApiKeyMasked {
+					t.Errorf("ApiKeyKey = %q, want ApiKeyMasked %q", item.ApiKeyKey, item.ApiKeyMasked)
+				}
+				if item.ApiKeyKey == cleanKey || item.ApiKeyKey == unknownKey || item.ApiKeyKey == shortKey {
+					t.Errorf("ApiKeyKey %q leaked raw key", item.ApiKeyKey)
+				}
+
 				if item.KeyName == "Team Laptop" {
 					foundNamedKey = true
 					if item.PromptTokens != 150 || item.CompletionTokens != 75 {
@@ -99,6 +126,15 @@ func TestUsageStats_InputTokensFallback(t *testing.T) {
 						t.Errorf("Unknown key tokens = prompt %d / compl %d, want 50 / 25", item.PromptTokens, item.CompletionTokens)
 					}
 				}
+				if item.KeyName == "a***" {
+					foundShortKey = true
+					if item.ApiKeyMasked != "a***" {
+						t.Errorf("Short key ApiKeyMasked = %q, want 'a***'", item.ApiKeyMasked)
+					}
+					if item.PromptTokens != 10 || item.CompletionTokens != 5 {
+						t.Errorf("Short key tokens = prompt %d / compl %d, want 10 / 5", item.PromptTokens, item.CompletionTokens)
+					}
+				}
 			}
 
 			if !foundNamedKey {
@@ -106,6 +142,9 @@ func TestUsageStats_InputTokensFallback(t *testing.T) {
 			}
 			if !foundUnknownKey {
 				t.Errorf("expected ByApiKey bucket with KeyName %q (masked key fallback), got: %+v", expectedUnknownMask, resp.ByApiKey)
+			}
+			if !foundShortKey {
+				t.Errorf("expected ByApiKey bucket with KeyName 'a***' for short key, got: %+v", resp.ByApiKey)
 			}
 		})
 	}

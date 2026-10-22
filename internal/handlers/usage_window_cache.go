@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"9router/proxy/internal/db"
-	"9router/proxy/internal/handlerutil"
 	"9router/proxy/internal/translator"
 )
 
@@ -568,10 +567,10 @@ func apiKeyDisplayName(storedKey string, keyNames map[string]string) string {
 	case trimmed == "local-no-key" || trimmed == "" || trimmed == "***":
 		return "Local (No Key)"
 	default:
-		if masked := handlerutil.MaskAPIKey(trimmed); masked != "" && masked != "***" {
+		if masked := maskAPIKeyForStats(trimmed); masked != "" {
 			return masked
 		}
-		return trimmed[:min(8, len(trimmed))] + "..."
+		return "Local (No Key)"
 	}
 }
 
@@ -625,14 +624,12 @@ func applyRawAggregate(resp *UsageStatsResponse, agg *rawAggregate, nodeNameMap,
 		k := resp.ByApiKey[key]
 		k.RawModel = meta.rawModel
 		k.Provider = displayProviderName(meta.provider, nodeNameMap)
-		masked := meta.apiKey
-		if masked != "local-no-key" {
-			if m := handlerutil.MaskAPIKey(meta.apiKey); m != "" && m != "***" {
-				masked = m
-			}
+		masked := maskAPIKeyForStats(meta.apiKey)
+		if masked == "" {
+			masked = "local-no-key"
 		}
 		k.ApiKeyMasked = masked
-		k.ApiKeyKey = meta.apiKey
+		k.ApiKeyKey = masked
 		k.KeyName = apiKeyDisplayName(meta.apiKey, keyNames)
 		k.Requests = t.requests
 		k.PromptTokens = t.promptTokens

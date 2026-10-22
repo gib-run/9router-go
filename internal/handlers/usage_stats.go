@@ -164,6 +164,20 @@ type UsageStatsResponse struct {
 // HandleUsageStats aggregates usage over the window named by ?period. Besides the
 // dashboard presets ("today", "24h", "7d", "30d", "60d", "all") it accepts any
 // <n>d or <n>h window, so the selector is not limited to a fixed set.
+// maskAPIKeyForStats masks an API key for usage stats display and grouping.
+// Keys <= 12 characters mask to firstChar + "***" to prevent leaking the raw
+// key in apiKeyMasked, keyName, and apiKeyKey (upstream usageRepo.js parity).
+func maskAPIKeyForStats(key string) string {
+	trimmed := strings.TrimSpace(key)
+	if trimmed == "" || trimmed == "local-no-key" || trimmed == "***" {
+		return ""
+	}
+	if handlerutil.RuneCount(trimmed) <= 12 {
+		return handlerutil.RunePrefix(trimmed, 1) + "***"
+	}
+	return handlerutil.MaskAPIKey(trimmed)
+}
+
 func HandleUsageStats(repo *db.Repo) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		window := resolveUsagePeriod(r.URL.Query().Get("period"), time.Now())
@@ -219,10 +233,14 @@ func HandleUsageStats(repo *db.Repo) http.HandlerFunc {
 				trimmed := strings.TrimSpace(k.Key)
 				if trimmed != "" {
 					keyNames[trimmed] = *k.Name
-					keyNames[handlerutil.MaskAPIKey(trimmed)] = *k.Name
+					if m := maskAPIKeyForStats(trimmed); m != "" {
+						keyNames[m] = *k.Name
+					}
 				}
 				keyNames[k.Key] = *k.Name
-				keyNames[handlerutil.MaskAPIKey(k.Key)] = *k.Name
+				if m := maskAPIKeyForStats(k.Key); m != "" {
+					keyNames[m] = *k.Name
+				}
 			}
 		}
 
@@ -241,14 +259,12 @@ func HandleUsageStats(repo *db.Repo) http.HandlerFunc {
 			cur := resp.ByApiKey[bucketKey]
 			cur.RawModel = rawModel
 			cur.Provider = providerDisplay
-			masked := apiKey
-			if masked != "local-no-key" {
-				if m := handlerutil.MaskAPIKey(apiKey); m != "" && m != "***" {
-					masked = m
-				}
+			masked := maskAPIKeyForStats(apiKey)
+			if masked == "" {
+				masked = "local-no-key"
 			}
 			cur.ApiKeyMasked = masked
-			cur.ApiKeyKey = apiKey
+			cur.ApiKeyKey = masked
 			switch {
 			case keyNames[trimmed] != "":
 				cur.KeyName = keyNames[trimmed]
@@ -257,10 +273,10 @@ func HandleUsageStats(repo *db.Repo) http.HandlerFunc {
 			case trimmed == "local-no-key":
 				cur.KeyName = "Local (No Key)"
 			default:
-				if masked != "local-no-key" && masked != "***" {
+				if masked != "local-no-key" {
 					cur.KeyName = masked
 				} else {
-					cur.KeyName = trimmed[:min(8, len(trimmed))] + "..."
+					cur.KeyName = "Local (No Key)"
 				}
 			}
 			cur.Requests += requests
