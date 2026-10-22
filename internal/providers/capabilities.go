@@ -305,7 +305,6 @@ var devinCLIGPTCaps = Capabilities{
 	Vision: true, Reasoning: true, Search: true, Tools: true,
 	ThinkingFormat: "openai", ContextWindow: 200000, MaxOutput: 128000,
 }
-
 var providerCapabilities = map[string]map[string]Capabilities{
 	"nvidia": {
 		"minimaxai/minimax-m2.7":        {Reasoning: true, Tools: true, ThinkingFormat: "openai", ThinkingCanDisable: new(false)},
