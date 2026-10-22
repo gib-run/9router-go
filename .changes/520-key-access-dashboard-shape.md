@@ -26,11 +26,15 @@ no deny mode. So the same rows mean different policies on each side:
   now return 400, and the key keeps the policy it had. The flat `models`
   endpoint keeps its pattern semantics: this narrows the new door, it does not
   take an existing one away.
-- **Reading reports `restricted` for any non-empty policy, including one the
-  Node shape cannot express.** A pattern-only allowlist is published as
-  restricted with an empty `allow` (the same shape upstream uses for "restricted,
-  allows nothing") rather than as unrestricted. The flat `models` field on the
-  same response still carries the stored patterns verbatim.
+- **Reading reports `restricted` for any non-empty policy, and an empty `allow`
+  as soon as one stored row is outside the Node shape.** A pattern-only
+  allowlist is published as restricted with an empty `allow` (the same shape
+  upstream uses for "restricted, allows nothing") rather than as unrestricted.
+  The plain entries beside a pattern are not published on their own either: for
+  `["gpt-4o", "*"]` — reachable by putting the glob on the key's plan, whose
+  endpoint keeps pattern semantics — listing `gpt-4o` alone would say the key
+  may call one model while the gate allows everything. The flat `models` field
+  on the same response still carries the stored patterns verbatim.
 - **A read failure is not "no restriction".** The listing used to fall back to
   an empty allowlist when the access table could not be read, and the mapping
   rendered that as `restricted: false` — while the request path fails *closed*
@@ -59,7 +63,9 @@ Evidence: `internal/handlers/dashboard/apikeys_access_test.go` and
 `internal/integration/keys_access_test.go`. Each guard was removed in turn and
 the corresponding test failed: the pattern rejection (six spellings refused, the
 seed surviving each refusal), the fail-closed read (the table is dropped, and the
-key must still read as restricted), and the plan union (both surfaces report the
-union while `models` keeps the own rows). The integration test drives the real
-gate with the key under test rather than the suite's default credential, so a
-403 there is proof the refused writes did not land.
+key must still read as restricted), the plan union (both surfaces report the
+union while `models` keeps the own rows), and the subset rule above (with it
+reverted to "empty only when nothing is expressible", a key whose plan carries a
+glob reports `allow: [gpt-4o]` on both surfaces). The integration test drives the
+real gate with the key under test rather than the suite's default credential, so
+a 403 there is proof the refused writes did not land.

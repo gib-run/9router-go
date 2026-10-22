@@ -165,6 +165,64 @@ func TestKeyAccessReportsThePlanUnion(t *testing.T) {
 	}
 }
 
+// TestKeyAccessPatternFromThePlanIsNotEmpty closes the last place the field
+// could understate: a PLAN carrying a pattern. The union then holds the key's
+// plain entries beside the plan's glob, and publishing only the plain ones
+// would say "may call gpt-4o" while the gate allows everything the glob names.
+// The whole set is then outside the Node shape, so the answer is restricted
+// with nothing — never restricted with a subset.
+func TestKeyAccessPatternFromThePlanIsNotEmpty(t *testing.T) {
+	repo, cleanup := setupTestDB(t)
+	defer cleanup()
+	if err := repo.UpdateSettingsRaw(map[string]any{"requireLogin": false}); err != nil {
+		t.Fatalf("disable requireLogin: %v", err)
+	}
+	router := setupTestRouter(repo)
+
+	plan := doJSON(t, router, http.MethodPost, "/api/plans", planBody(map[string]any{
+		"name": "glob-plan",
+		// The plan endpoint keeps its pattern semantics, so a glob is accepted
+		// there — and it is exactly the shape that makes the union wider than
+		// its plain entries suggest.
+		"allowedModels": []string{"*"},
+	}))
+	if plan.Code != http.StatusOK {
+		t.Fatalf("create plan = %d: %s", plan.Code, plan.Body.String())
+	}
+	planID, _ := decodePlan(t, plan)["id"].(string)
+
+	id, _ := createTestKey(t, router, "plan-glob")
+	if rec := doJSON(t, router, http.MethodPut, "/api/keys/"+id, planBody(map[string]any{"planId": planID})); rec.Code != http.StatusOK {
+		t.Fatalf("assign plan = %d: %s", rec.Code, rec.Body.String())
+	}
+	putKeyAccess(t, router, id, map[string]any{"restricted": true, "allow": []any{"gpt-4o"}})
+
+	for _, surface := range []string{"per-key", "list"} {
+		var got keyAccessShape
+		if surface == "per-key" {
+			got = keyAccessOf(t, router, id)
+		} else {
+			access, ok := listKeys(t, router)["access"].(map[string]any)
+			if !ok {
+				t.Fatalf("list access missing or not an object")
+			}
+			allow, _ := access["allow"].([]any)
+			got.Restricted, _ = access["restricted"].(bool)
+			for _, v := range allow {
+				if s, ok := v.(string); ok {
+					got.Allow = append(got.Allow, s)
+				}
+			}
+		}
+		if !got.Restricted {
+			t.Errorf("%s: access.restricted = false for a key on a glob plan", surface)
+		}
+		if len(got.Allow) != 0 {
+			t.Errorf("%s: access.allow = %v, want empty — the plan's glob makes the set wider than its plain entries", surface, got.Allow)
+		}
+	}
+}
+
 // putKeyAccess is this file's own request shape: it must not depend on the
 // handler's struct, or a rename there would keep these tests green.
 func putKeyAccess(t *testing.T, router http.Handler, id string, access map[string]any) *httptest.ResponseRecorder {

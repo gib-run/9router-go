@@ -36,7 +36,9 @@ import (
 //   - Reading reports `restricted` only for a set the Node shape can describe.
 //     Rows written through the flat endpoint in pattern syntax are still shown
 //     verbatim in that endpoint's own `models` field, but they are not dressed
-//     up as a restriction the Node shape would honour.
+//     up as a restriction the Node shape would honour — and the expressible
+//     rows beside them are not published as if they were the whole policy,
+//     because a set containing a glob allows more than its plain entries say.
 //   - The policy the gate enforces is the key's rows UNIONED with its plan's
 //     (see internal/handlers/chat/access.go). `access` reports that effective
 //     policy, because "what may this key call" is the question the field
@@ -60,13 +62,13 @@ type keyAccess struct {
 
 // accessFromPatterns maps a stored allowlist to the access object.
 //
-// An empty list is unrestricted. The deny-all sentinel is a restricted key
-// that allows nothing — the one state that must not read as unrestricted,
-// which is why it is checked before the empty list is.
+// An empty list is unrestricted. Anything else is restricted — including the
+// deny-all sentinel, which is the one state that must not read as unrestricted.
 //
-// A set the Node shape cannot express is reported as RESTRICTED with the
-// entries it can carry, never as unrestricted. That direction is the whole
-// point: upstream's own comment says a corrupt or unparsable allow list "can
+// A set holding even one row the Node shape cannot express is reported as
+// RESTRICTED with an EMPTY list, never as restricted-with-a-subset and never as
+// unrestricted. That direction is the whole point: upstream's own comment says
+// a corrupt or unparsable allow list "can
 // only ever shrink what a restricted key may call (to nothing); it can never
 // turn a restricted key into an unrestricted one" — the same rule has to hold
 // for a shape mismatch, or the dashboard would advertise an open key that the
@@ -77,15 +79,18 @@ func accessFromPatterns(patterns []string) keyAccess {
 	if len(patterns) == 0 {
 		return keyAccess{Restricted: false, Allow: []string{}}
 	}
-	if len(patterns) == 1 && patterns[0] == db.SentinelDenyAll {
-		return keyAccess{Restricted: true, Allow: []string{}}
-	}
 	allow := nodeExpressibleIdentity(patterns)
-	if len(allow) == 0 {
-		// Every stored row is outside the Node shape. The key IS restricted —
-		// the gate will deny something — so the flag stays true and the list
-		// reports empty, which is the same shape upstream uses for
-		// "restricted, allows nothing".
+	if len(allow) != len(patterns) {
+		// At least one row is outside the Node shape — a glob, a deny entry,
+		// the deny-all sentinel. The set as a whole is then not a list of
+		// models, so the expressible rows among them must NOT be published on
+		// their own: `["gpt-4o", "*"]` would be reported as "this key may call
+		// gpt-4o" while the gate allows everything, which is the understatement
+		// that made the whole field unsafe. The one answer left is the shape
+		// upstream uses for "restricted, allows nothing", and it errs toward
+		// saying the key is narrower than it is — the direction upstream's own
+		// comment promises. The exact rows stay visible in the flat `models`
+		// field on the same response.
 		return keyAccess{Restricted: true, Allow: []string{}}
 	}
 	return keyAccess{Restricted: true, Allow: allow}
