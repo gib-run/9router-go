@@ -80,7 +80,7 @@ func (h *ChatHandler) HandleChatCompletions(w http.ResponseWriter, r *http.Reque
 	// keepalive traffic never reaches a provider, so it is not an access
 	// request — and before resolveModel, so a denied model never reaches
 	// connection selection.
-	if !h.enforceModelAccess(w, r, reqBody.Model) {
+	if !h.enforceModelAccess(w, r, modelName) {
 		return
 	}
 
@@ -92,6 +92,9 @@ func (h *ChatHandler) HandleChatCompletions(w http.ResponseWriter, r *http.Reque
 	ctx = handlerutil.WithClientAnthropicBeta(ctx, r.Header.Get("anthropic-beta"))
 	ctx = translator.WithRequestedModel(ctx, stripModelContextMarker(modelName))
 	ctx = thinking.WithSuffixIntent(ctx, suffixIntent)
+	// The operator's providerThinking overrides are read once here, not once
+	// per connection attempt.
+	ctx = h.withProviderThinkingModes(ctx)
 	// Record the dispatching key so the outbound guardrail tap can resolve the
 	// right policy. A keyless caller leaves it unset and the tap stays inert.
 	ctx = withGuardrailKey(ctx, requestKeyID(r))
@@ -315,6 +318,9 @@ func (h *ChatHandler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 	ctx = withProviderLimitState(ctx)
 	ctx = translator.WithRequestedModel(ctx, stripModelContextMarker(modelName))
 	ctx = thinking.WithSuffixIntent(ctx, suffixIntent)
+	// The operator's providerThinking overrides are read once here, not once
+	// per connection attempt.
+	ctx = h.withProviderThinkingModes(ctx)
 	// Record the dispatching key so the outbound guardrail tap can resolve the
 	// policy scoped to it. A keyless caller leaves it unset and the tap stays
 	// inert.

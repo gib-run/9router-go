@@ -616,7 +616,7 @@ func (h *ChatHandler) handleComboFallback(ctx context.Context, w http.ResponseWr
 				}
 				upstreamBody["model"] = modelInfo.Model
 				repairToolCallIDsInMap(upstreamBody)
-				upstreamJSON, err := json.Marshal(upstreamBody)
+				upstreamJSON, err := json.Marshal(upstreamBody, json.Deterministic(true))
 				if err != nil {
 					break
 				}
@@ -884,7 +884,7 @@ func (h *ChatHandler) handleMessagesComboFallback(ctx context.Context, w http.Re
 				}
 				entryBody["model"] = modelInfo.Model
 
-				upstreamJSON, err := json.Marshal(entryBody)
+				upstreamJSON, err := json.Marshal(entryBody, json.Deterministic(true))
 				if err != nil {
 					break
 				}
