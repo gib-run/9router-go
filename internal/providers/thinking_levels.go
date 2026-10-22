@@ -150,10 +150,7 @@ func codexModelLevels(provider, model string) []string {
 	if provider != "codex" {
 		return nil
 	}
-	base := model
-	if open := strings.LastIndex(base, "("); open != -1 && strings.HasSuffix(base, ")") {
-		base = strings.TrimSpace(base[:open])
-	}
+	base, _ := splitThinkingSuffix(model)
 	return codexModelThinkingLevels[base]
 }
 
