@@ -56,7 +56,7 @@ func (h *DashboardHandler) HandleCreateComboPresets(w http.ResponseWriter, r *ht
 		handlerutil.WriteJSONError(w, http.StatusBadRequest, "failed to read body")
 		return
 	}
-	defer r.Body.Close()
+	defer func() { _ = r.Body.Close() }()
 
 	var req struct {
 		Source string `json:"source"`
