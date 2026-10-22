@@ -186,11 +186,68 @@ func (r *Repo) UpdateProviderNode(id, name, data string) (*models.ProviderNode, 
 	return &node, nil
 }
 
-// DeleteProviderNode deletes a provider node and its associated connections.
+// DeleteProviderNode deletes a provider node, its associated connections,
+// and any custom models registered under its alias.
 func (r *Repo) DeleteProviderNode(id string) error {
-	if _, err := r.db.Exec("DELETE FROM providerNodes WHERE id = ?", id); err != nil {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return fmt.Errorf("delete provider node %s: begin transaction: %w", id, err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var exists int
+	if err := tx.QueryRow(`SELECT COUNT(1) FROM providerNodes WHERE id = ?`, id).Scan(&exists); err != nil {
+		return fmt.Errorf("delete provider node %s: check existence: %w", id, err)
+	}
+	if exists == 0 {
+		return nil
+	}
+
+	if _, err := tx.Exec("DELETE FROM providerNodes WHERE id = ?", id); err != nil {
 		return fmt.Errorf("delete provider node %s: %w", id, err)
 	}
-	_, _ = r.db.Exec("DELETE FROM providerConnections WHERE provider = ?", id)
+	_, _ = tx.Exec("DELETE FROM providerConnections WHERE provider = ?", id)
+
+	if err := pruneCustomModels(tx, id); err != nil {
+		return fmt.Errorf("delete provider node %s: prune custom models: %w", id, err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("delete provider node %s: commit: %w", id, err)
+	}
+	return nil
+}
+
+// pruneCustomModels removes any customModels kv rows whose key starts with the node's alias.
+func pruneCustomModels(tx *sql.Tx, id string) error {
+	rows, err := tx.Query(`SELECT key FROM kv WHERE scope = 'customModels'`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	var toDelete []string
+	for rows.Next() {
+		var key string
+		if err := rows.Scan(&key); err != nil {
+			return err
+		}
+		alias, _, ok := splitCustomModelKey(key)
+		if ok && alias == id {
+			toDelete = append(toDelete, key)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+
+	for _, k := range toDelete {
+		if _, err := tx.Exec(`DELETE FROM kv WHERE scope = 'customModels' AND key = ?`, k); err != nil {
+			return err
+		}
+	}
 	return nil
 }
