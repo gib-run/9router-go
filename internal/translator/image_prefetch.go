@@ -431,7 +431,7 @@ func prefetchOne(ctx context.Context, client *http.Client, opts PrefetchOptions,
 		log.Warn("translator", "image prefetch failed", "status", status, "error", err)
 		return "", false
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		return "", false
@@ -443,7 +443,7 @@ func prefetchOne(ctx context.Context, client *http.Client, opts PrefetchOptions,
 
 	head := make([]byte, 512)
 	n, err := io.ReadFull(resp.Body, head)
-	if err != nil && err != io.ErrUnexpectedEOF && err != io.EOF {
+	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) && !errors.Is(err, io.EOF) {
 		return "", false
 	}
 	head = head[:n]
