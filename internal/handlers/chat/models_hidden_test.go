@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"database/sql"
 	"strings"
 	"testing"
 
@@ -78,5 +79,91 @@ func TestHandleModels_HiddenProviderIsNotAdvertised(t *testing.T) {
 	}
 	if providers.GetProviderAlias("mimo-free") == "" {
 		t.Error("mimo-free lost its published alias; hidden is about listing, not identity")
+	}
+}
+
+// TestHandleModels_HiddenProviderAbsentFromEveryMode pins all three listing
+// paths against every configuration: the static catalog dump (fresh install and
+// ?all=1), the per-connection loop (active connections, where a stored
+// connection would otherwise publish its models), the loose custom-model pass,
+// and the all-inactive fallback.
+//
+// In every mode and under every configuration, a provider marked Hidden must
+// never appear in /v1/models — under its canonical name or under any alias that
+// resolves to it.
+func TestHandleModels_HiddenProviderAbsentFromEveryMode(t *testing.T) {
+	hiddenPrefixes := hiddenPrefixSpellings()
+
+	configs := map[string]func(t *testing.T, database *sql.DB){
+		"fresh_install_no_rows": func(t *testing.T, database *sql.DB) {
+			t.Helper()
+			mustExec(t, database, `DELETE FROM providerConnections`)
+		},
+		"rows_but_all_inactive": func(t *testing.T, database *sql.DB) {
+			t.Helper()
+			mustExec(t, database, `DELETE FROM providerConnections`)
+			// One row per spelling of the hidden family, all switched off.
+			mustExec(t, database, `INSERT INTO providerConnections (id, provider, authType, name, priority, isActive, data, createdAt, updatedAt) VALUES
+				('conn-mmf-off', 'mmf', 'none', 'MMF off', 1, 0, '{}', '2026-07-18T00:00:00Z', '2026-07-18T00:00:00Z')`)
+			mustExec(t, database, `INSERT INTO providerConnections (id, provider, authType, name, priority, isActive, data, createdAt, updatedAt) VALUES
+				('conn-ds-off', 'deepseek', 'apikey', 'DeepSeek off', 1, 0, '{"apiKey":"sk-off"}', '2026-07-18T00:00:00Z', '2026-07-18T00:00:00Z')`)
+			// A custom model pinned to the hidden provider. appendLooseCustomModels
+			// must drop this even when ?all=1 leaves the listing unfiltered.
+			mustExec(t, database, `INSERT INTO kv (scope, key, value) VALUES ('customModels', 'mimo-free|probe-model|llm', '{"providerAlias":"mimo-free","id":"probe-model","type":"llm","name":"probe-model"}')`)
+		},
+		"connected_and_active": func(t *testing.T, database *sql.DB) {
+			t.Helper()
+			// An active connection to the hidden provider. The per-connection loop
+			// must not publish its models.
+			mustExec(t, database, `INSERT INTO providerConnections (id, provider, authType, name, priority, isActive, data, createdAt, updatedAt) VALUES
+				('conn-mmf-on', 'mmf', 'none', 'MMF on', 1, 1, '{}', '2026-07-18T00:00:00Z', '2026-07-18T00:00:00Z')`)
+		},
+	}
+
+	for cfgName, setup := range configs {
+		t.Run(cfgName, func(t *testing.T) {
+			database, cleanup := setupChatTestDB(t)
+			defer cleanup()
+			setup(t, database)
+			h := NewChatHandler(db.NewRepo(database))
+
+			for _, query := range []string{"", "?connected=1", "?all=1"} {
+				ids := modelsIDsQuery(t, h, query)
+				if len(ids) == 0 {
+					t.Fatalf("%s %q published no models; the absence assertions below would pass vacuously", cfgName, query)
+				}
+				for _, id := range ids {
+					prefix, _, ok := strings.Cut(id, "/")
+					if ok && hiddenPrefixes[prefix] {
+						t.Errorf("%s %q published hidden provider entry %q", cfgName, query, id)
+					}
+				}
+			}
+		})
+	}
+}
+
+// hiddenPrefixSpellings is every ProviderModels key that resolves to a Hidden
+// provider, taken from the registry so the test keeps covering the whole set
+// rather than the names it happens to mention.
+func hiddenPrefixSpellings() map[string]bool {
+	out := make(map[string]bool, 4)
+	for id, cfg := range providers.KnownProviders {
+		if cfg.Hidden {
+			out[id] = true
+		}
+	}
+	for alias := range providers.ProviderModels {
+		if out[providers.ResolveAlias(alias)] {
+			out[alias] = true
+		}
+	}
+	return out
+}
+
+func mustExec(t *testing.T, database *sql.DB, query string) {
+	t.Helper()
+	if _, err := database.Exec(query); err != nil {
+		t.Fatalf("exec %q: %v", query, err)
 	}
 }

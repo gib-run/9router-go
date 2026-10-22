@@ -59,6 +59,50 @@ func TestValidateProviderNode_LocalCallerStillBlockedFromCloudMetadata(t *testin
 	})
 }
 
+// TestValidateProviderNode_LocalCallerBlockedFromMetadataSpellings covers the
+// ways a metadata endpoint can be written when the caller is local. The literal
+// dotted form is refused above; these are the spellings a string comparison
+// misses — the address as one decimal integer, GCP's documented hostname, and a
+// wildcard-DNS name that resolves to the address from anywhere. All three are
+// refused without any DNS answer, so the test holds with the network off.
+func TestValidateProviderNode_LocalCallerBlockedFromMetadataSpellings(t *testing.T) {
+	for _, target := range []string{
+		"http://2852039166/latest/meta-data/",                     // 169.254.169.254 decimal
+		"http://metadata.google.internal/latest/meta-data/",       // GCP documented name
+		"http://169.254.169.254.nip.io/latest/meta-data/",         // wildcard DNS, dotted
+		"http://169-254-169-254.sslip.io/latest/meta-data/",       // wildcard DNS, dashed
+	} {
+		t.Run(target, func(t *testing.T) {
+			calls := staticProbeStub(t, http.StatusOK)
+
+			rec, out := postValidateNode(t, `{"baseUrl":"`+target+`","apiKey":"k","type":"openai-compatible"}`, true)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("expected 200, got %d", rec.Code)
+			}
+			if got := nodeOut(t, out, "error"); got != "URL not allowed" {
+				t.Errorf("a local caller reached metadata via %s: error = %q, want %q", target, got, "URL not allowed")
+			}
+			if len(*calls) != 0 {
+				t.Errorf("the gateway probed %s %d time(s)", target, len(*calls))
+			}
+		})
+	}
+
+	// The control: an ordinary public address written the same way stays usable,
+	// so the refusals above are about the metadata range, not about rejecting
+	// unusual spellings wholesale.
+	t.Run("decimal_public_ip_still_allowed", func(t *testing.T) {
+		calls := staticProbeStub(t, http.StatusOK)
+		rec, out := postValidateNode(t, `{"baseUrl":"http://134744072/v1","apiKey":"k","type":"openai-compatible"}`, true) // 8.8.8.8
+		if !nodeValid(t, out) {
+			t.Fatalf("public address in decimal was refused: %s", rec.Body.String())
+		}
+		if len(*calls) == 0 {
+			t.Fatal("expected a probe for the public node")
+		}
+	})
+}
+
 // TestKnownProviders_MMFIsHidden pins Step 1 of the same spec: mimo-free is a
 // no-auth provider that must stay reachable (connections resolve it) while
 // staying out of the lists a person scans. Without a Hidden field on the

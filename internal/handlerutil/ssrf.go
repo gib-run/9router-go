@@ -249,10 +249,49 @@ func IsCloudMetadataURL(rawURL string) bool {
 		return false
 	}
 	trimmed := strings.Trim(host, "[]")
-	ip := net.ParseIP(trimmed)
-	if ip == nil {
+	if ip := net.ParseIP(trimmed); ip != nil {
+		return isCloudMetadataIP(ip)
+	}
+	// 169.254.169.254 written as one decimal integer. inet_aton accepts it and
+	// so does the dialer, but net.ParseIP does not — so the literal branch above
+	// never sees it, and the request would reach the metadata service.
+	if n, err := strconv.ParseUint(trimmed, 10, 32); err == nil {
+		return isCloudMetadataIP(net.IPv4(byte(n>>24), byte(n>>16), byte(n>>8), byte(n)))
+	}
+	// A hostname reaches the same service just as directly: on GCP the
+	// documented name is metadata.google.internal, and a wildcard-DNS name
+	// (169.254.169.254.nip.io) resolves to the address from anywhere. Static
+	// handling keeps both refused when resolution is unavailable, which is the
+	// normal case for the offline test suite.
+	if host == "metadata.google.internal" || strings.HasSuffix(host, ".metadata.google.internal") {
+		return true
+	}
+	for _, suffix := range []string{".nip.io", ".sslip.io"} {
+		if !strings.HasSuffix(host, suffix) {
+			continue
+		}
+		// nip.io takes the address with dots, sslip.io with dashes; normalise
+		// both and let the literal check decide.
+		prefix := strings.ReplaceAll(strings.TrimSuffix(host, suffix), "-", ".")
+		if ip := net.ParseIP(prefix); ip != nil && isCloudMetadataIP(ip) {
+			return true
+		}
+	}
+	// A name that does not resolve cannot reach the service either — the dial
+	// fails — so resolution failure is not treated as a signal here.
+	addrs, err := net.LookupIP(host)
+	if err != nil {
 		return false
 	}
+	for _, ip := range addrs {
+		if isCloudMetadataIP(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+func isCloudMetadataIP(ip net.IP) bool {
 	for _, block := range cloudMetadataAddrs {
 		if block.Contains(ip) {
 			return true
