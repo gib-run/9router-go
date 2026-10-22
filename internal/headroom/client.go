@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"9router/proxy/internal/log"
 	"9router/proxy/internal/proxy"
 )
 
@@ -223,11 +224,14 @@ func (c *HeadroomClient) Compress(ctx context.Context, body []byte, model string
 	stats := &HeadroomStats{TokensSaved: savedTokens}
 
 	if IsHeadroomPhantomSavings(stats, diag) {
-		return body, false, nil
+		log.Warn("headroom", FormatHeadroomPhantomWarning(diag))
 	}
 
-	// If no token savings were reported, guard against any byte growth.
-	if len(newBody) >= len(body) && len(compMsgBytes) >= len(rawMsgBytes) {
+	// Byte-gain guard: a result that is not meaningfully smaller is not worth the
+	// risk of a lossy round trip. The proxy reports its own token counts, but
+	// this compares the bytes actually about to be sent, so a proxy that reports
+	// phantom savings cannot talk the gateway into committing them.
+	if len(newBody) >= len(body)*95/100 {
 		return body, false, nil
 	}
 

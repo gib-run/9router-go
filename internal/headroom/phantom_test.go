@@ -7,77 +7,137 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"9router/proxy/internal/log"
 )
 
-// TestCompress_HealthyMessageCompressionWithLargeTools proves upstream db81a8c9 (#4855) parity:
-// When tools dominate the outbound body, healthy message compression (e.g. 50% shrink)
-// must NOT be rejected by the phantom savings guard.
-func TestCompress_HealthyMessageCompressionWithLargeTools(t *testing.T) {
-	origMessage := strings.Repeat("x", 1000)
-	compressedMessage := strings.Repeat("x", 500)
-	largeTools := []any{
-		map[string]any{
-			"type": "function",
-			"function": map[string]any{
-				"name":        "lookup",
-				"description": strings.Repeat("tool schema description ", 2000), // ~44KB tool schema
-			},
+// TestCompress_ByteFloorCases tests the integrating function HeadroomClient.Compress
+// against the 5% byte floor:
+// (a) body grows from 7055 to 7455 bytes, expect original body back and compressed false
+// (b) body shrinks from 21064 to 21054 bytes (0.047%), expect original body back and compressed false
+// (c) body shrinks from 21064 to 19000 bytes, expect compressed true
+func TestCompress_ByteFloorCases(t *testing.T) {
+	tests := []struct {
+		name           string
+		bodyTargetLen  int
+		expectedOutLen int
+		origMsgLen     int
+		compMsgLen     int
+		numFloats      int
+		tokensSaved    int
+		wantCompressed bool
+	}{
+		{
+			name:           "case a: body grows from 7055 to 7455 bytes",
+			bodyTargetLen:  7055,
+			expectedOutLen: 7455,
+			origMsgLen:     100,
+			compMsgLen:     80,
+			numFloats:      420,
+			tokensSaved:    50,
+			wantCompressed: false,
+		},
+		{
+			name:           "case b: body shrinks from 21064 to 21054 bytes (0.047%)",
+			bodyTargetLen:  21064,
+			expectedOutLen: 21054,
+			origMsgLen:     100,
+			compMsgLen:     90,
+			numFloats:      0,
+			tokensSaved:    50,
+			wantCompressed: false,
+		},
+		{
+			name:           "case c: body shrinks from 21064 to 19000 bytes",
+			bodyTargetLen:  21064,
+			expectedOutLen: 19000,
+			origMsgLen:     2500,
+			compMsgLen:     436,
+			numFloats:      0,
+			tokensSaved:    500,
+			wantCompressed: true,
 		},
 	}
 
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		resp := map[string]any{
-			"messages": []any{
-				map[string]any{"role": "user", "content": compressedMessage},
-			},
-			"tokens_before": 1000,
-			"tokens_after":  500,
-			"tokens_saved":  500,
-		}
-		data, _ := json.Marshal(resp)
-		_, _ = w.Write(data)
-	}))
-	defer ts.Close()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			origMsg := strings.Repeat("m", tt.origMsgLen)
+			compMsg := strings.Repeat("m", tt.compMsgLen)
 
-	bodyMap := map[string]any{
-		"model": "gpt-4o",
-		"messages": []any{
-			map[string]any{"role": "user", "content": origMessage},
-		},
-		"tools": largeTools,
-	}
-	body, err := json.Marshal(bodyMap)
-	if err != nil {
-		t.Fatalf("marshal body: %v", err)
-	}
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				resp := map[string]any{
+					"messages": []any{
+						map[string]any{"role": "user", "content": compMsg},
+					},
+					"tokens_saved": tt.tokensSaved,
+				}
+				data, _ := json.Marshal(resp)
+				_, _ = w.Write(data)
+			}))
+			defer ts.Close()
 
-	client := NewClient(ts.URL, "", nil)
-	got, compressed, err := client.Compress(context.Background(), body, "gpt-4o", 1000)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !compressed {
-		t.Fatalf("expected healthy message compression to be committed even when tools dominate body")
-	}
+			var numsPart string
+			if tt.numFloats > 0 {
+				nums := make([]string, tt.numFloats)
+				for i := range nums {
+					nums[i] = "1e21"
+				}
+				numsPart = `,"nums":[` + strings.Join(nums, ",") + `]`
+			}
 
-	var gotMap map[string]any
-	if err := json.Unmarshal(got, &gotMap); err != nil {
-		t.Fatalf("unmarshal result: %v", err)
-	}
-	msgs, ok := gotMap["messages"].([]any)
-	if !ok || len(msgs) != 1 {
-		t.Fatalf("expected 1 message in compressed result, got: %v", gotMap["messages"])
-	}
-	firstMsg := msgs[0].(map[string]any)
-	if firstMsg["content"] != compressedMessage {
-		t.Errorf("content = %v, want compressedMessage", firstMsg["content"])
+			buildBody := func(padLen int) []byte {
+				pad := strings.Repeat("p", padLen)
+				return []byte(`{"model":"gpt-4o","messages":[{"role":"user","content":"` + origMsg + `"}]` + numsPart + `,"pad":"` + pad + `"}`)
+			}
+
+			// Calibrate padding to match tt.bodyTargetLen exactly
+			rawBase := buildBody(0)
+			neededPad := tt.bodyTargetLen - len(rawBase)
+			if neededPad < 0 {
+				t.Fatalf("targetLen %d too small for base %d", tt.bodyTargetLen, len(rawBase))
+			}
+			body := buildBody(neededPad)
+			if len(body) != tt.bodyTargetLen {
+				t.Fatalf("constructed body len = %d, want %d", len(body), tt.bodyTargetLen)
+			}
+
+			// Verify candidate re-marshal length matches tt.expectedOutLen
+			var reqMap map[string]any
+			if err := json.Unmarshal(body, &reqMap); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+			reqMap["messages"] = []any{
+				map[string]any{"role": "user", "content": compMsg},
+			}
+			newBody, err := json.Marshal(reqMap)
+			if err != nil {
+				t.Fatalf("marshal newBody: %v", err)
+			}
+			if len(newBody) != tt.expectedOutLen {
+				t.Fatalf("marshaled newBody len = %d, want %d", len(newBody), tt.expectedOutLen)
+			}
+
+			client := NewClient(ts.URL, "", nil)
+			resBody, compressed, err := client.Compress(context.Background(), body, "gpt-4o", 1000)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if compressed != tt.wantCompressed {
+				t.Errorf("Compress() compressed = %v (outLen=%d), want %v", compressed, len(resBody), tt.wantCompressed)
+			}
+			if !tt.wantCompressed && string(resBody) != string(body) {
+				t.Errorf("Compress() did not return original body on rejection")
+			}
+		})
 	}
 }
 
 // TestCompress_RejectsBarelySmallerMessages verifies that when messages and body
-// both shrink by less than the 5% threshold, phantom savings is rejected.
+// both shrink by less than the 5% threshold, phantom savings is rejected and a warning is logged.
 func TestCompress_RejectsBarelySmallerMessages(t *testing.T) {
+	log.ClearConsoleLogs()
 	origMessage := strings.Repeat("x", 1000)
 	nearlySameMessage := strings.Repeat("x", 995) // only 0.5% shrink
 
@@ -111,6 +171,17 @@ func TestCompress_RejectsBarelySmallerMessages(t *testing.T) {
 	}
 	if compressed {
 		t.Fatalf("expected compression to be rejected when both messages and body shrink <5%%")
+	}
+
+	var foundWarning bool
+	for _, entry := range log.ConsoleEntries() {
+		if strings.Contains(entry.Line, HeadroomPhantomWarningText) {
+			foundWarning = true
+			break
+		}
+	}
+	if !foundWarning {
+		t.Errorf("expected phantom savings warning to be logged with %q", HeadroomPhantomWarningText)
 	}
 }
 
