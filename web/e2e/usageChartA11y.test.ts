@@ -64,9 +64,11 @@ describe('usage chart accessibility', () => {
       // nothing while it is closed, and the rows' text reads back empty. So
       // the disclosure is opened first, the way a keyboard user reaches it,
       // and the table is then queried by its accessible role and name.
-      const details = page.locator('details').filter({
-        has: page.locator('table[aria-label="Usage trend table"]'),
-      })
+      // The table is only built while the disclosure is open: a long period is
+      // thousands of buckets, and a collapsed table is a row and three cells
+      // per bucket that a 1-vCPU box still pays for. So the <details> is found
+      // by its summary, which exists before the table does.
+      const details = page.locator('details').filter({ hasText: 'View table' })
       await details.locator('summary').click()
 
       const table = page.getByRole('table', { name: 'Usage trend table' })
@@ -117,12 +119,36 @@ describe('usage chart accessibility', () => {
       // the page from the keyboard. ArrowRight must walk the same points. The
       // wait is a poll rather than a read because the key handler updates
       // Svelte state and the DOM settles on the next microtask.
+      //
+      // Two presses from a known start, and the assertion is on the FOCUSED
+      // element, not just the tooltip. The keydown fires on whatever is
+      // focused, so a handler that never moves focus reads its own index
+      // again and ArrowRight becomes idempotent after one step — a single
+      // press from one start cannot tell that apart from a working walk.
       await firstPoint.press('ArrowRight')
       await page.waitForFunction(
         (label) => document.querySelector('[role="status"]')?.textContent?.includes(label) ?? false,
         CHART_FIXTURE[1].label,
       )
       expect(await tooltip.innerText()).toContain(CHART_FIXTURE[1].label)
+
+      await page.keyboard.press('ArrowRight')
+      await page.waitForFunction(
+        (label) => document.querySelector('[role="status"]')?.textContent?.includes(label) ?? false,
+        CHART_FIXTURE[2].label,
+      )
+      expect(await tooltip.innerText()).toContain(CHART_FIXTURE[2].label)
+
+      const focusedLabel = await page.evaluate(() => document.activeElement?.getAttribute('aria-label') ?? '')
+      expect(focusedLabel).toContain(CHART_FIXTURE[2].label)
+
+      // One tab stop for the chart, not one per bucket: an all-time window is
+      // thousands of points, and a keyboard user cannot Tab past them.
+      const tabbable = await page
+        .getByRole('img', { name: 'Usage trend chart' })
+        .locator('rect[tabindex="0"]')
+        .count()
+      expect(tabbable).toBe(1)
     },
     SLOW,
   )
