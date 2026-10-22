@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"9router/proxy/internal/log"
+	"9router/proxy/internal/netguard"
 )
 
 // Safe image prefetch (G11). Remote image URLs in an inbound request are
@@ -76,64 +77,6 @@ func MaxRawSizeForBase64Limit(limitBytes int64) int64 {
 	return (limitBytes / 4) * 3
 }
 
-// prefetchBlockedCIDRs are the ranges net.IP's own methods do not cover. They
-// are separate from the built-in predicates because Go's IsPrivate() answers
-// only RFC1918, IsLoopback only 127/8 and ::1, and neither knows about the
-// addresses clouds and carriers actually use for internal services.
-//
-// 100.64.0.0/10 matters most: it is RFC6598 carrier-grade NAT, and Alibaba
-// Cloud's metadata endpoint (100.100.100.200) sits inside it.
-//
-// This copy is local to the translator on purpose. internal/proxy already
-// imports internal/translator, so the two cannot share a predicate that lives
-// in either one without an import cycle. When internal/netguard lands, both
-// copies should collapse onto it — otherwise the drift that left
-// 100.100.100.200 reachable can come back.
-var prefetchBlockedCIDRs = func() []*net.IPNet {
-	specs := []string{
-		"100.64.0.0/10",   // RFC6598 carrier-grade NAT; 100.100.100.200 is Alibaba's metadata service
-		"192.0.0.0/24",    // RFC6890 IETF protocol assignments, incl. Oracle's 192.0.0.192 metadata
-		"198.18.0.0/15",   // RFC2544 benchmark range, used by some VM host-internal networks
-		"192.88.99.0/24",  // deprecated 6to4 relay anycast
-		"198.51.100.0/24", // RFC5737 documentation ranges: never a real image host
-		"203.0.113.0/24",
-		"::/128",        // unspecified
-		"64:ff9b:1::/48", // RFC8215 local-use NAT64
-		"2001:db8::/32",  // documentation
-	}
-	blocks := make([]*net.IPNet, 0, len(specs))
-	for _, spec := range specs {
-		if _, block, err := net.ParseCIDR(spec); err == nil {
-			blocks = append(blocks, block)
-		}
-	}
-	return blocks
-}()
-
-// isPrivateOrReservedIP checks if an IP belongs to loopback, private,
-// link-local, cloud-metadata, carrier-grade-NAT or reserved ranges.
-func isPrivateOrReservedIP(ip net.IP) bool {
-	if ip == nil {
-		return false
-	}
-	if ip4 := ip.To4(); ip4 != nil {
-		if ip4.IsLoopback() || ip4.IsPrivate() || ip4.IsLinkLocalUnicast() ||
-			ip4.IsLinkLocalMulticast() || ip4.IsUnspecified() || ip4.IsMulticast() ||
-			ip4[0] == 0 {
-			return true
-		}
-	} else if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
-		ip.IsLinkLocalMulticast() || ip.IsUnspecified() || ip.IsMulticast() {
-		return true
-	}
-	for _, block := range prefetchBlockedCIDRs {
-		if block.Contains(ip) {
-			return true
-		}
-	}
-	return false
-}
-
 // ValidatePrefetchURL validates the URL scheme and checks for direct SSRF host attempts.
 func ValidatePrefetchURL(rawURL string) (int, error) {
 	if rawURL == "" {
@@ -162,7 +105,7 @@ func ValidatePrefetchURL(rawURL string) (int, error) {
 
 	// Check if hostname is a literal IP address
 	ip := net.ParseIP(hostname)
-	if ip != nil && isPrivateOrReservedIP(ip) {
+	if ip != nil && netguard.IsPrivateOrReserved(ip) {
 		return StatusPrefetchBadRequest, ErrPrefetchSSRFBlocked
 	}
 
@@ -587,7 +530,7 @@ func newPrefetchClient(allowLoopback bool) *http.Client {
 			if ip.IsLoopback() && allowLoopback {
 				return nil
 			}
-			if isPrivateOrReservedIP(ip) {
+			if netguard.IsPrivateOrReserved(ip) {
 				return ErrPrefetchSSRFBlocked
 			}
 			return nil

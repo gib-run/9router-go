@@ -53,12 +53,8 @@ The rewrite preserves everything it does not touch. A plain
 values instead, so a sibling field the rewrite never touches survives byte for
 byte.
 
-The private-address predicate is currently a local copy in
-`internal/translator`. `internal/proxy` already imports `internal/translator`,
-so the two packages cannot share a predicate that lives in either one without
-an import cycle. When a shared `internal/netguard` package lands, both copies
-should collapse onto it — the two copies had already drifted once, and the
-disagreement left `100.100.100.200` reachable through this path.
-
-> Rename this fragment to `<pr-number>-image-prefetch.md` once a PR number
-> exists. It carries a local slug because no PR has been opened.
+The private-address predicate is `internal/netguard`, the shared package the
+proxy's own SSRF guard already uses, rather than the local copy this change
+first carried. The two copies had drifted once and the disagreement left
+`100.100.100.200` reachable through this path; one predicate, one place to fix
+it.

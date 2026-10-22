@@ -110,7 +110,7 @@ func TestPrefetch_KeepsPublicAddressesReachable(t *testing.T) {
 	for _, raw := range []string{
 		"https://1.1.1.1/a.png",
 		"https://8.8.8.8/a.png",
-		"https://93.184.216.34/a.png", // example.com
+		"https://93.184.216.34/a.png",  // example.com
 		"https://100.63.255.255/a.png", // just below the CGNAT block
 		"https://100.128.0.1/a.png",    // just above it
 	} {
