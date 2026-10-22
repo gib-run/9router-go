@@ -189,3 +189,105 @@ func TestGetProviderModelKind(t *testing.T) {
 		}
 	}
 }
+
+func TestNewProvidersRegistry_v060(t *testing.T) {
+	// DaoXE
+	if _, ok := KnownProviders["daoxe"]; !ok {
+		t.Error("expected daoxe provider registered")
+	}
+	cfg := KnownProviders["daoxe"]
+	if cfg.BaseURL != "https://daoxe.llmaa.com/v1/chat/completions" {
+		t.Errorf("daoxe expected BaseURL https://daoxe.llmaa.com/v1/chat/completions, got %s", cfg.BaseURL)
+	}
+	if cfg.AuthScheme != "bearer" || cfg.AuthHeader != "Authorization" {
+		t.Errorf("daoxe expected bearer/Authorization, got %s/%s", cfg.AuthScheme, cfg.AuthHeader)
+	}
+
+	// NaN.Builders
+	if _, ok := KnownProviders["nanbuilders"]; !ok {
+		t.Error("expected nanbuilders provider registered")
+	}
+	cfg = KnownProviders["nanbuilders"]
+	if cfg.BaseURL != "https://api.nan.builders/v1/chat/completions" {
+		t.Errorf("nanbuilders expected BaseURL https://api.nan.builders/v1/chat/completions, got %s", cfg.BaseURL)
+	}
+	if cfg.AuthScheme != "bearer" || cfg.AuthHeader != "Authorization" {
+		t.Errorf("nanbuilders expected bearer/Authorization, got %s/%s", cfg.AuthScheme, cfg.AuthHeader)
+	}
+
+	// OpenAdapter
+	if _, ok := KnownProviders["openadapter"]; !ok {
+		t.Error("expected openadapter provider registered")
+	}
+	cfg = KnownProviders["openadapter"]
+	if cfg.BaseURL != "https://openadapter.ai/v1/chat/completions" {
+		t.Errorf("openadapter expected BaseURL https://openadapter.ai/v1/chat/completions, got %s", cfg.BaseURL)
+	}
+	if cfg.AuthScheme != "bearer" || cfg.AuthHeader != "Authorization" {
+		t.Errorf("openadapter expected bearer/Authorization, got %s/%s", cfg.AuthScheme, cfg.AuthHeader)
+	}
+
+	// Aliases
+	if a := ResolveAlias("dx"); a != "daoxe" {
+		t.Errorf("expected dx alias to resolve to daoxe, got %s", a)
+	}
+	if a := ResolveAlias("nan"); a != "nanbuilders" {
+		t.Errorf("expected nan alias to resolve to nanbuilders, got %s", a)
+	}
+	if a := ResolveAlias("oad"); a != "openadapter" {
+		t.Errorf("expected oad alias to resolve to openadapter, got %s", a)
+	}
+
+	// Verify model capabilities
+	gpt4oCaps := GetCapabilitiesForModel("daoxe", "gpt-4o")
+	if !gpt4oCaps.Vision || !gpt4oCaps.Reasoning || !gpt4oCaps.Search || !gpt4oCaps.Tools {
+		t.Errorf("expected daoxe/gpt-4o to have vision, reasoning, search, tools, got %+v", gpt4oCaps)
+	}
+
+	gpt4oCaps = GetCapabilitiesForModel("nanbuilders", "gpt-4o")
+	if !gpt4oCaps.Vision || !gpt4oCaps.Reasoning || !gpt4oCaps.Search || !gpt4oCaps.Tools {
+		t.Errorf("expected nanbuilders/gpt-4o to have vision, reasoning, search, tools, got %+v", gpt4oCaps)
+	}
+
+	gpt4oCaps = GetCapabilitiesForModel("openadapter", "gpt-4o")
+	if !gpt4oCaps.Vision || !gpt4oCaps.Reasoning || !gpt4oCaps.Search || !gpt4oCaps.Tools {
+		t.Errorf("expected openadapter/gpt-4o to have vision, reasoning, search, tools, got %+v", gpt4oCaps)
+	}
+
+	// Verify RegistryAliases
+	if got := RegistryAliases["daoxe"]; got != "dx" {
+		t.Errorf("RegistryAliases[daoxe] = %q, want dx", got)
+	}
+	if got := RegistryAliases["nanbuilders"]; got != "nan" {
+		t.Errorf("RegistryAliases[nanbuilders] = %q, want nan", got)
+	}
+	if got := RegistryAliases["openadapter"]; got != "oad" {
+		t.Errorf("RegistryAliases[openadapter] = %q, want oad", got)
+	}
+
+	// Verify models are registered for each provider
+	for _, provider := range []string{"daoxe", "nanbuilders", "openadapter"} {
+		models := GetProviderModels(provider)
+		if len(models) == 0 {
+			t.Errorf("GetProviderModels(%q) returned empty list", provider)
+		}
+		hasGPT4o := false
+		for _, m := range models {
+			if m == "gpt-4o" {
+				hasGPT4o = true
+				break
+			}
+		}
+		if !hasGPT4o {
+			t.Errorf("GetProviderModels(%q) missing gpt-4o, got %v", provider, models)
+		}
+	}
+
+	// Verify aliases reach the same catalog
+	for _, alias := range []string{"dx", "nan", "oad"} {
+		models := GetProviderModels(alias)
+		if len(models) == 0 {
+			t.Errorf("GetProviderModels(%q) returned empty list", alias)
+		}
+	}
+}
