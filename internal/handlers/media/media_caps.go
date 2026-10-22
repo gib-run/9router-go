@@ -3,6 +3,7 @@ package media
 import (
 	"bytes"
 	json "encoding/json/v2"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -63,7 +64,7 @@ func measureMultipartInput(contentType string, body []byte) (mediaInputUse, erro
 	mr := multipart.NewReader(bytes.NewReader(body), params["boundary"])
 	for {
 		part, err := mr.NextPart()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
