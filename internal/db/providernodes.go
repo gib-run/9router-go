@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"database/sql"
 	json "encoding/json/v2"
 	"fmt"
@@ -188,27 +189,27 @@ func (r *Repo) UpdateProviderNode(id, name, data string) (*models.ProviderNode, 
 
 // DeleteProviderNode deletes a provider node, its associated connections,
 // and any custom models registered under its alias.
-func (r *Repo) DeleteProviderNode(id string) error {
-	tx, err := r.db.Begin()
+func (r *Repo) DeleteProviderNode(ctx context.Context, id string) error {
+	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("delete provider node %s: begin transaction: %w", id, err)
 	}
 	defer func() { _ = tx.Rollback() }()
 
 	var exists int
-	if err := tx.QueryRow(`SELECT COUNT(1) FROM providerNodes WHERE id = ?`, id).Scan(&exists); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(1) FROM providerNodes WHERE id = ?`, id).Scan(&exists); err != nil {
 		return fmt.Errorf("delete provider node %s: check existence: %w", id, err)
 	}
 	if exists == 0 {
 		return nil
 	}
 
-	if _, err := tx.Exec("DELETE FROM providerNodes WHERE id = ?", id); err != nil {
+	if _, err := tx.ExecContext(ctx, "DELETE FROM providerNodes WHERE id = ?", id); err != nil {
 		return fmt.Errorf("delete provider node %s: %w", id, err)
 	}
-	_, _ = tx.Exec("DELETE FROM providerConnections WHERE provider = ?", id)
+	_, _ = tx.ExecContext(ctx, "DELETE FROM providerConnections WHERE provider = ?", id)
 
-	if err := pruneCustomModels(tx, id); err != nil {
+	if err := pruneCustomModels(ctx, tx, id); err != nil {
 		return fmt.Errorf("delete provider node %s: prune custom models: %w", id, err)
 	}
 
@@ -219,12 +220,12 @@ func (r *Repo) DeleteProviderNode(id string) error {
 }
 
 // pruneCustomModels removes any customModels kv rows whose key starts with the node's alias.
-func pruneCustomModels(tx *sql.Tx, id string) error {
-	rows, err := tx.Query(`SELECT key FROM kv WHERE scope = 'customModels'`)
+func pruneCustomModels(ctx context.Context, tx *sql.Tx, id string) error {
+	rows, err := tx.QueryContext(ctx, `SELECT key FROM kv WHERE scope = 'customModels'`)
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var toDelete []string
 	for rows.Next() {
@@ -245,7 +246,7 @@ func pruneCustomModels(tx *sql.Tx, id string) error {
 	}
 
 	for _, k := range toDelete {
-		if _, err := tx.Exec(`DELETE FROM kv WHERE scope = 'customModels' AND key = ?`, k); err != nil {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM kv WHERE scope = 'customModels' AND key = ?`, k); err != nil {
 			return err
 		}
 	}

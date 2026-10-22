@@ -97,7 +97,7 @@ func TestDeleteProviderNode(t *testing.T) {
 				}
 			}
 
-			if err := repo.DeleteProviderNode(tc.deleteID); err != nil {
+			if err := repo.DeleteProviderNode(t.Context(), tc.deleteID); err != nil {
 				t.Fatalf("DeleteProviderNode(%q) error = %v", tc.deleteID, err)
 			}
 
