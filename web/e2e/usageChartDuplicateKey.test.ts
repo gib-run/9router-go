@@ -57,10 +57,16 @@ describe('usage chart duplicate bucket labels', () => {
       // not in the DOM until the chevron is pressed.
       await openUsageTrend(page)
 
-      // The table lives inside a collapsed <details>, so it is addressed by
-      // its locator rather than by role, and waited for as attached rather
-      // than visible: Playwright's role engine does not see content that is
-      // not rendered, and a collapsed table is never visible.
+      // The table is only built while its <details> is open — a long period is
+      // thousands of buckets, and the table behind a shut disclosure is a cost
+      // the page still paid. So the disclosure is opened first, which is also
+      // what a reader does to reach the table.
+      const details = page.locator('details').filter({ hasText: 'View table' })
+      await details.locator('summary').click()
+
+      // It is then addressed by its locator rather than by role: it is
+      // attached but still the content of a disclosure, and the assertion
+      // below is about the rows, not about visibility.
       const table = page.locator('table[aria-label="Usage trend table"]')
       await table.waitFor({ state: 'attached' })
 
