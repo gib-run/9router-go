@@ -418,7 +418,7 @@ func (h *DashboardHandler) HandleValidateProviderNode(w http.ResponseWriter, r *
 	// it is not a licence to dial the metadata service, which answers with
 	// instance credentials. Checked before the bypass so there is one rule to
 	// read rather than an exception inside an exception.
-	if handlerutil.IsCloudMetadataURL(baseURL) {
+	if handlerutil.IsCloudMetadataURL(r.Context(), baseURL) {
 		writeNodeValidation(w, map[string]any{"valid": false, "error": "URL not allowed"})
 		return
 	}

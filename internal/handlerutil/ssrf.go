@@ -1,6 +1,7 @@
 package handlerutil
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/url"
@@ -239,7 +240,7 @@ func isBlockedHost(host string) bool {
 // Only the metadata addresses are listed. Loopback, RFC1918 and the rest stay
 // the caller's decision, because a self-hosted provider is exactly a request
 // to reach those on purpose.
-func IsCloudMetadataURL(rawURL string) bool {
+func IsCloudMetadataURL(ctx context.Context, rawURL string) bool {
 	parsed, err := url.Parse(rawURL)
 	if err != nil {
 		return false
@@ -278,8 +279,10 @@ func IsCloudMetadataURL(rawURL string) bool {
 		}
 	}
 	// A name that does not resolve cannot reach the service either — the dial
-	// fails — so resolution failure is not treated as a signal here.
-	addrs, err := net.LookupIP(host)
+	// fails — so resolution failure is not treated as a signal here. The
+	// lookup takes the caller's context so a dashboard request that is already
+	// cancelled does not leave a resolver goroutine behind.
+	addrs, err := net.DefaultResolver.LookupIP(ctx, "ip", host)
 	if err != nil {
 		return false
 	}
