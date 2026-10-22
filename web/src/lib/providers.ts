@@ -700,7 +700,7 @@ export const PROVIDER_CATALOG: ProviderCatalogItem[] = [
     ]
   },
   {
-    "id": "nanbuilders",
+    "id": "nan",
     "name": "NaN.Builders",
     "category": "freeTier",
     "alias": "nan",
@@ -721,8 +721,8 @@ export const PROVIDER_CATALOG: ProviderCatalogItem[] = [
     "alias": "oad",
     "color": "#8B5CF6",
     "icon": "hub",
-    "website": "https://openadapter.ai",
-    "notice": {"apiKeyUrl":"https://openadapter.ai/api-keys"},
+    "website": "https://openadapter.in",
+    "notice": {"apiKeyUrl":"https://openadapter.in/api-keys"},
     "authType": "apikey",
     "noAuth": false,
     "serviceKinds": [
