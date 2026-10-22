@@ -1,6 +1,7 @@
 package translator
 
 import (
+	"context"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -26,29 +27,29 @@ type slowPersister struct {
 	keys    []string
 }
 
-func (s *slowPersister) SaveThoughtSignature(key, signature, family string, expiresAt time.Time) error {
+func (s *slowPersister) SaveThoughtSignature(ctx context.Context, key, signature, family string, expiresAt time.Time) error {
 	<-s.release
 	s.saves.Add(1)
 	s.mu.Lock()
 	s.keys = append(s.keys, key)
 	s.mu.Unlock()
-	return s.inner.SaveThoughtSignature(key, signature, family, expiresAt)
+	return s.inner.SaveThoughtSignature(ctx, key, signature, family, expiresAt)
 }
 
-func (s *slowPersister) GetThoughtSignature(key string) (*db.ThoughtSignatureRow, error) {
-	return s.inner.GetThoughtSignature(key)
+func (s *slowPersister) GetThoughtSignature(ctx context.Context, key string) (*db.ThoughtSignatureRow, error) {
+	return s.inner.GetThoughtSignature(ctx, key)
 }
 
-func (s *slowPersister) LoadThoughtSignatures(limit int) ([]db.ThoughtSignatureRow, error) {
-	return s.inner.LoadThoughtSignatures(limit)
+func (s *slowPersister) LoadThoughtSignatures(ctx context.Context, limit int) ([]db.ThoughtSignatureRow, error) {
+	return s.inner.LoadThoughtSignatures(ctx, limit)
 }
 
-func (s *slowPersister) PruneThoughtSignatures(now time.Time) (int64, error) {
-	return s.inner.PruneThoughtSignatures(now)
+func (s *slowPersister) PruneThoughtSignatures(ctx context.Context, now time.Time) (int64, error) {
+	return s.inner.PruneThoughtSignatures(ctx, now)
 }
 
-func (s *slowPersister) TrimThoughtSignatures(keep int) (int64, error) {
-	return s.inner.TrimThoughtSignatures(keep)
+func (s *slowPersister) TrimThoughtSignatures(ctx context.Context, keep int) (int64, error) {
+	return s.inner.TrimThoughtSignatures(ctx, keep)
 }
 
 // unblock releases the stalled writer. Idempotent: the failure path releases
@@ -118,7 +119,7 @@ func TestThoughtSignatureStore_QueueDrainsOnShutdown(t *testing.T) {
 	}
 
 	for i := 0; i < 5; i++ {
-		row, err := repo.GetThoughtSignature("call_drain_" + strconv.Itoa(i))
+		row, err := repo.GetThoughtSignature(context.Background(), "call_drain_"+strconv.Itoa(i))
 		if err != nil {
 			t.Fatalf("read back %d: %v", i, err)
 		}
@@ -156,7 +157,7 @@ type concurrencyProbe struct {
 	saves       atomic.Int64
 }
 
-func (c *concurrencyProbe) SaveThoughtSignature(key, signature, family string, expiresAt time.Time) error {
+func (c *concurrencyProbe) SaveThoughtSignature(ctx context.Context, key, signature, family string, expiresAt time.Time) error {
 	n := c.inflight.Add(1)
 	defer c.inflight.Add(-1)
 	for {
@@ -167,21 +168,21 @@ func (c *concurrencyProbe) SaveThoughtSignature(key, signature, family string, e
 	}
 	time.Sleep(time.Millisecond)
 	c.saves.Add(1)
-	return c.inner.SaveThoughtSignature(key, signature, family, expiresAt)
+	return c.inner.SaveThoughtSignature(ctx, key, signature, family, expiresAt)
 }
 
-func (c *concurrencyProbe) GetThoughtSignature(key string) (*db.ThoughtSignatureRow, error) {
-	return c.inner.GetThoughtSignature(key)
+func (c *concurrencyProbe) GetThoughtSignature(ctx context.Context, key string) (*db.ThoughtSignatureRow, error) {
+	return c.inner.GetThoughtSignature(ctx, key)
 }
 
-func (c *concurrencyProbe) LoadThoughtSignatures(limit int) ([]db.ThoughtSignatureRow, error) {
-	return c.inner.LoadThoughtSignatures(limit)
+func (c *concurrencyProbe) LoadThoughtSignatures(ctx context.Context, limit int) ([]db.ThoughtSignatureRow, error) {
+	return c.inner.LoadThoughtSignatures(ctx, limit)
 }
 
-func (c *concurrencyProbe) PruneThoughtSignatures(now time.Time) (int64, error) {
-	return c.inner.PruneThoughtSignatures(now)
+func (c *concurrencyProbe) PruneThoughtSignatures(ctx context.Context, now time.Time) (int64, error) {
+	return c.inner.PruneThoughtSignatures(ctx, now)
 }
 
-func (c *concurrencyProbe) TrimThoughtSignatures(keep int) (int64, error) {
-	return c.inner.TrimThoughtSignatures(keep)
+func (c *concurrencyProbe) TrimThoughtSignatures(ctx context.Context, keep int) (int64, error) {
+	return c.inner.TrimThoughtSignatures(ctx, keep)
 }

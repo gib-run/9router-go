@@ -1,6 +1,7 @@
 package translator
 
 import (
+	"context"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -105,11 +106,11 @@ var globalThoughtSigStore = &thoughtSignatureStore{
 // thoughtSignaturePersister is the persistence seam. *db.Repo satisfies it; a
 // nil value (or a nil interface) means "memory only".
 type thoughtSignaturePersister interface {
-	SaveThoughtSignature(key, signature, family string, expiresAt time.Time) error
-	GetThoughtSignature(key string) (*db.ThoughtSignatureRow, error)
-	LoadThoughtSignatures(limit int) ([]db.ThoughtSignatureRow, error)
-	PruneThoughtSignatures(now time.Time) (int64, error)
-	TrimThoughtSignatures(keep int) (int64, error)
+	SaveThoughtSignature(ctx context.Context, key, signature, family string, expiresAt time.Time) error
+	GetThoughtSignature(ctx context.Context, key string) (*db.ThoughtSignatureRow, error)
+	LoadThoughtSignatures(ctx context.Context, limit int) ([]db.ThoughtSignatureRow, error)
+	PruneThoughtSignatures(ctx context.Context, now time.Time) (int64, error)
+	TrimThoughtSignatures(ctx context.Context, keep int) (int64, error)
 }
 
 // SetThoughtSignaturePersistence attaches a backing store and hydrates the
@@ -155,7 +156,7 @@ func SetThoughtSignaturePersistence(p thoughtSignaturePersister) {
 	// already attached, so writes still land in SQLite; returning here used to
 	// leave those rows with no pruner for the life of the process, and the
 	// table grew without bound after a single transient read error.
-	if rows, err := p.LoadThoughtSignatures(maxMemorySignatures); err != nil {
+	if rows, err := p.LoadThoughtSignatures(context.Background(), maxMemorySignatures); err != nil {
 		log.Warn("translator", "thought signature hydration skipped", "error", err)
 	} else {
 		now := time.Now()
@@ -219,7 +220,7 @@ func (s *thoughtSignatureStore) runWrite(p thoughtSignaturePersister, task async
 		close(task.done)
 		return
 	}
-	if err := p.SaveThoughtSignature(task.key, task.signature, task.family, task.expiresAt); err != nil {
+	if err := p.SaveThoughtSignature(context.Background(), task.key, task.signature, task.family, task.expiresAt); err != nil {
 		log.Warn("translator", "thought signature persist skipped", "error", err)
 	}
 }
@@ -233,13 +234,13 @@ func (s *thoughtSignatureStore) pruneLoop(p thoughtSignaturePersister, stop <-ch
 		case <-stop:
 			return
 		case now := <-ticker.C:
-			if _, err := p.PruneThoughtSignatures(now); err != nil {
+			if _, err := p.PruneThoughtSignatures(context.Background(), now); err != nil {
 				log.Warn("translator", "thought signature prune skipped", "error", err)
 			}
 			// Expiry alone is not a bound: a live gateway keeps writing. Trim
 			// to the L2 capacity so the table stops at the size the contract
 			// names instead of at whatever disk fills to.
-			if _, err := p.TrimThoughtSignatures(maxPersistentSignatures); err != nil {
+			if _, err := p.TrimThoughtSignatures(context.Background(), maxPersistentSignatures); err != nil {
 				log.Warn("translator", "thought signature trim skipped", "error", err)
 			}
 		}
@@ -436,7 +437,7 @@ func GetGeminiThoughtSignature(toolCallID, sessionID string, model ...string) st
 	}
 
 	for _, k := range candidates {
-		row, err := persister.GetThoughtSignature(k)
+		row, err := persister.GetThoughtSignature(context.Background(), k)
 		if err != nil {
 			log.Warn("translator", "thought signature lookup skipped", "error", err)
 			return ""

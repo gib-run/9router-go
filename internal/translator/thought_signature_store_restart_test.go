@@ -1,6 +1,7 @@
 package translator
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 	"time"
@@ -69,7 +70,7 @@ func TestThoughtSignatureStore_SurvivesRestart(t *testing.T) {
 		)
 
 		SetThoughtSignaturePersistence(nil)
-		if err := repo.SaveThoughtSignature(sessionID+":"+callID, sig, "gemini", time.Now().Add(-time.Minute)); err != nil {
+		if err := repo.SaveThoughtSignature(context.Background(), sessionID+":"+callID, sig, "gemini", time.Now().Add(-time.Minute)); err != nil {
 			t.Fatalf("seed expired row: %v", err)
 		}
 		newProcess(t, repo)

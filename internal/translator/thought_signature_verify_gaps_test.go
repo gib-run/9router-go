@@ -1,6 +1,7 @@
 package translator
 
 import (
+	"context"
 	"errors"
 	"sync"
 	"testing"
@@ -24,33 +25,33 @@ type flakyPersister struct {
 	trims     []int
 }
 
-func (f *flakyPersister) SaveThoughtSignature(key, signature, family string, expiresAt time.Time) error {
-	return f.inner.SaveThoughtSignature(key, signature, family, expiresAt)
+func (f *flakyPersister) SaveThoughtSignature(ctx context.Context, key, signature, family string, expiresAt time.Time) error {
+	return f.inner.SaveThoughtSignature(ctx, key, signature, family, expiresAt)
 }
 
-func (f *flakyPersister) GetThoughtSignature(key string) (*db.ThoughtSignatureRow, error) {
-	return f.inner.GetThoughtSignature(key)
+func (f *flakyPersister) GetThoughtSignature(ctx context.Context, key string) (*db.ThoughtSignatureRow, error) {
+	return f.inner.GetThoughtSignature(ctx, key)
 }
 
-func (f *flakyPersister) LoadThoughtSignatures(limit int) ([]db.ThoughtSignatureRow, error) {
+func (f *flakyPersister) LoadThoughtSignatures(ctx context.Context, limit int) ([]db.ThoughtSignatureRow, error) {
 	if f.failLoad != nil {
 		return nil, f.failLoad
 	}
-	return f.inner.LoadThoughtSignatures(limit)
+	return f.inner.LoadThoughtSignatures(ctx, limit)
 }
 
-func (f *flakyPersister) PruneThoughtSignatures(now time.Time) (int64, error) {
+func (f *flakyPersister) PruneThoughtSignatures(ctx context.Context, now time.Time) (int64, error) {
 	f.pruneMu.Lock()
 	f.pruneRuns++
 	f.pruneMu.Unlock()
-	return f.inner.PruneThoughtSignatures(now)
+	return f.inner.PruneThoughtSignatures(ctx, now)
 }
 
-func (f *flakyPersister) TrimThoughtSignatures(keep int) (int64, error) {
+func (f *flakyPersister) TrimThoughtSignatures(ctx context.Context, keep int) (int64, error) {
 	f.pruneMu.Lock()
 	f.trims = append(f.trims, keep)
 	f.pruneMu.Unlock()
-	return f.inner.TrimThoughtSignatures(keep)
+	return f.inner.TrimThoughtSignatures(ctx, keep)
 }
 
 // TestThoughtSignatureStore_HydrateFailureKeepsPruning pins that a transient
@@ -81,7 +82,7 @@ func TestThoughtSignatureStore_HydrateFailureKeepsPruning(t *testing.T) {
 	// does not, the pruner argument above is moot.
 	StoreGeminiThoughtSignature("call_after_failed_hydrate", "SIG_LATE", "sess", "gemini-2.5-flash")
 	globalThoughtSigStore.drainSignatureWrites()
-	row, err := repo.GetThoughtSignature("call_after_failed_hydrate")
+	row, err := repo.GetThoughtSignature(context.Background(), "call_after_failed_hydrate")
 	if err != nil {
 		t.Fatalf("read back after failed hydrate: %v", err)
 	}
@@ -103,7 +104,7 @@ func TestThoughtSignatureStore_DiskTTLOutlivesMemory(t *testing.T) {
 	StoreGeminiThoughtSignature(callID, "SIG_TTL", "sess", "gemini-2.5-flash")
 	globalThoughtSigStore.drainSignatureWrites()
 
-	row, err := repo.GetThoughtSignature(callID)
+	row, err := repo.GetThoughtSignature(context.Background(), callID)
 	if err != nil {
 		t.Fatalf("read back: %v", err)
 	}
@@ -128,7 +129,7 @@ func TestRepo_TrimThoughtSignaturesKeepsNewest(t *testing.T) {
 
 	now := time.Now()
 	for _, key := range []string{"old1", "old2", "new1", "new2", "new3"} {
-		if err := repo.SaveThoughtSignature(key, "SIG_"+key, "gemini", now.Add(time.Hour)); err != nil {
+		if err := repo.SaveThoughtSignature(context.Background(), key, "SIG_"+key, "gemini", now.Add(time.Hour)); err != nil {
 			t.Fatalf("save %s: %v", key, err)
 		}
 		// updatedAt is second-resolution; nudge each write apart so the
@@ -136,10 +137,10 @@ func TestRepo_TrimThoughtSignaturesKeepsNewest(t *testing.T) {
 		time.Sleep(1100 * time.Millisecond)
 	}
 
-	if _, err := repo.TrimThoughtSignatures(3); err != nil {
+	if _, err := repo.TrimThoughtSignatures(context.Background(), 3); err != nil {
 		t.Fatalf("trim: %v", err)
 	}
-	remaining, err := repo.LoadThoughtSignatures(100)
+	remaining, err := repo.LoadThoughtSignatures(context.Background(), 100)
 	if err != nil {
 		t.Fatalf("load after trim: %v", err)
 	}

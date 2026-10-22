@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 	"time"
@@ -43,18 +44,18 @@ func TestThoughtSignatureRepoRoundTrip(t *testing.T) {
 
 	now := time.Now()
 	exp := now.Add(time.Hour)
-	if err := repo.SaveThoughtSignature("k1", "sig-1", "gemini", exp); err != nil {
+	if err := repo.SaveThoughtSignature(context.Background(), "k1", "sig-1", "gemini", exp); err != nil {
 		t.Fatalf("SaveThoughtSignature: %v", err)
 	}
 	// Upsert, not duplicate.
-	if err := repo.SaveThoughtSignature("k1", "sig-2", "gemini", exp); err != nil {
+	if err := repo.SaveThoughtSignature(context.Background(), "k1", "sig-2", "gemini", exp); err != nil {
 		t.Fatalf("SaveThoughtSignature upsert: %v", err)
 	}
-	if err := repo.SaveThoughtSignature("k_stale", "old", "gemini", now.Add(-time.Minute)); err != nil {
+	if err := repo.SaveThoughtSignature(context.Background(), "k_stale", "old", "gemini", now.Add(-time.Minute)); err != nil {
 		t.Fatalf("SaveThoughtSignature stale: %v", err)
 	}
 
-	rows, err := repo.LoadThoughtSignatures(10)
+	rows, err := repo.LoadThoughtSignatures(context.Background(), 10)
 	if err != nil {
 		t.Fatalf("LoadThoughtSignatures: %v", err)
 	}
@@ -63,7 +64,7 @@ func TestThoughtSignatureRepoRoundTrip(t *testing.T) {
 		t.Fatalf("unexpected loaded rows: %+v", rows)
 	}
 
-	pruned, err := repo.PruneThoughtSignatures(now)
+	pruned, err := repo.PruneThoughtSignatures(context.Background(), now)
 	if err != nil {
 		t.Fatalf("PruneThoughtSignatures: %v", err)
 	}
