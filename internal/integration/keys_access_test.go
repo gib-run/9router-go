@@ -68,6 +68,13 @@ func putAccess(t *testing.T, env *Env, id string, access map[string]any) {
 	}
 }
 
+// putAccessExpect is putAccess for the cases that must be REFUSED: it returns
+// the status so the caller can pin the refusal instead of failing the test.
+func putAccessExpect(t *testing.T, env *Env, id string, access map[string]any) int {
+	t.Helper()
+	return env.Put(t, "/api/keys/"+id, map[string]any{"access": access}).Status
+}
+
 func samePatterns(got, want []string) bool {
 	if len(got) != len(want) {
 		return false
@@ -104,12 +111,20 @@ func TestKeyAccessShapeIsTheSamePolicyAsModels(t *testing.T) {
 
 // (b) writes the flat `models` form and reads `access` back — the reverse
 // direction, which is what the Node dashboard needs from a Go-written key.
+//
+// The two shapes are not the same language. The flat endpoint keeps its pattern
+// semantics (#365), so a glob round-trips through `models` untouched; `access`
+// carries only what upstream's shape can express, which for a glob is nothing.
+// The key is still reported RESTRICTED — the gate does constrain it — but with
+// an empty list rather than a pattern upstream would misread. Reporting it as
+// unrestricted would be the fail-open direction the shape must never have.
 func TestKeyModelsShapeIsTheSamePolicyAsAccess(t *testing.T) {
 	env := newEnv(t)
 	id := newKeyForAccess(t, env, "access-b")
 
-	want := []string{"claude/*", "oc/*"}
-	res := env.Put(t, "/api/keys/"+id+"/models", map[string]any{"models": want})
+	// Exact identities first: these round-trip through both shapes.
+	exact := []string{"claude/claude-opus-5", "openai/gpt-4o"}
+	res := env.Put(t, "/api/keys/"+id+"/models", map[string]any{"models": exact})
 	if res.Status != http.StatusOK {
 		t.Fatalf("PUT /models = %d, want 200 (body: %s)", res.Status, truncate(res.Body))
 	}
@@ -118,8 +133,28 @@ func TestKeyModelsShapeIsTheSamePolicyAsAccess(t *testing.T) {
 	if !got.Restricted {
 		t.Fatalf("GET /api/keys access.restricted = false after writing an allowlist")
 	}
-	if !samePatterns(got.Allow, want) {
-		t.Errorf("GET /api/keys access.allow = %v, want %v", got.Allow, want)
+	if !samePatterns(got.Allow, exact) {
+		t.Errorf("GET /api/keys access.allow = %v, want %v", got.Allow, exact)
+	}
+
+	// Patterns stay in the flat endpoint's own vocabulary and are reported as a
+	// restriction with no Node-expressible entries — never as open.
+	patterns := []string{"claude/*", "oc/*"}
+	res = env.Put(t, "/api/keys/"+id+"/models", map[string]any{"models": patterns})
+	if res.Status != http.StatusOK {
+		t.Fatalf("PUT /models (patterns) = %d, want 200 (body: %s)", res.Status, truncate(res.Body))
+	}
+
+	got = accessOfKey(t, env, id)
+	if !got.Restricted {
+		t.Fatalf("access.restricted = false for a pattern allowlist; a constrained key was reported open")
+	}
+	if len(got.Allow) != 0 {
+		t.Errorf("access.allow = %v for a pattern-only allowlist, want empty", got.Allow)
+	}
+	// The patterns themselves are not lost: the flat field still carries them.
+	if stored := modelsOfKey(t, env, id); !samePatterns(stored.Models, patterns) {
+		t.Errorf("/models = %v, want the stored patterns %v", stored.Models, patterns)
 	}
 }
 
@@ -158,9 +193,100 @@ func TestKeyAccessRestrictedEmptyDeniesEverything(t *testing.T) {
 	}
 }
 
-// (d) a corrupt `access.allow` is refused, and the key keeps the policy it
-// already had. Turning a restricted key into an unrestricted one on a bad
-// payload is the one failure this shape must never have.
+// (e) The `access` door must not WIDEN a key. Go's store is a pattern language
+// (#365): `["*"]` matches everything and `["-gpt-4o"]` is deny-only, meaning
+// "allow everything except gpt-4o". Upstream's shape has neither, so accepting
+// them here would store a policy the dashboard calls `restricted` while the
+// gate serves every model.
+//
+// The gate is the oracle, not the response body: a rejected write must leave
+// the previous restriction in force, and the request path must still refuse a
+// model the seed does not name.
+func TestKeyAccessDoorCannotWidenAKey(t *testing.T) {
+	env := newEnv(t)
+	id, secret := createKey(t, env, "access-e")
+
+	seed := []string{"gpt-4o"}
+	putAccess(t, env, id, map[string]any{"restricted": true, "allow": seed})
+
+	widening := []struct {
+		name  string
+		allow []any
+	}{
+		{"wildcard", []any{"*"}},
+		{"glob", []any{"claude/*"}},
+		{"deny-only", []any{"-gpt-4o"}},
+		{"bang deny-only", []any{"!gpt-4o"}},
+	}
+	for _, tc := range widening {
+		if got := putAccessExpect(t, env, id, map[string]any{"restricted": true, "allow": tc.allow}); got != http.StatusBadRequest {
+			t.Errorf("%s: PUT access = %d, want 400 — the door accepted a pattern the Node shape cannot describe", tc.name, got)
+		}
+	}
+
+	// The seeded restriction is still what the gate enforces. A 403 here is the
+	// proof that none of the refused writes landed, and the request has to carry
+	// THIS key: the suite's default credential belongs to a different key whose
+	// policy this test never touched, so an unauthenticated-as-id request would
+	// answer about the wrong row.
+	res := env.Post(t, "/v1/embeddings", map[string]any{"model": "denied-model", "input": "hi"}, WithAPIKey(secret))
+	if res.Status != http.StatusForbidden {
+		t.Errorf("POST /v1/embeddings = %d after refused widening writes, want 403 (body: %s)", res.Status, truncate(res.Body))
+	}
+	if got := accessOfKey(t, env, id); !got.Restricted || !samePatterns(got.Allow, seed) {
+		t.Errorf("access after refused writes = %+v, want restricted with %v", got, seed)
+	}
+}
+
+// (f) `access` reports the EFFECTIVE policy — the key's own rows unioned with
+// its plan's. The gate unions the two and can only widen, so reporting the own
+// rows alone tells an operator the key may call one model while it may in fact
+// call everything the plan names. A write through this endpoint cannot narrow
+// a plan-bound key at all.
+func TestKeyAccessReportsThePlanUnion(t *testing.T) {
+	env := newEnv(t)
+	id := newKeyForAccess(t, env, "access-f")
+
+	res := env.Post(t, "/api/plans", map[string]any{
+		"name":          "access-union-plan",
+		"allowedModels": []string{"cc/claude-opus-5"},
+	})
+	if res.Status != http.StatusOK {
+		t.Fatalf("POST /api/plans = %d, want 200 (body: %s)", res.Status, truncate(res.Body))
+	}
+	var plan struct {
+		ID string `json:"id"`
+	}
+	res.Decode(t, &plan)
+	if plan.ID == "" {
+		t.Fatal("plan create returned no id")
+	}
+
+	res = env.Put(t, "/api/keys/"+id, map[string]any{"planId": plan.ID})
+	if res.Status != http.StatusOK {
+		t.Fatalf("assign plan = %d, want 200 (body: %s)", res.Status, truncate(res.Body))
+	}
+	putAccess(t, env, id, map[string]any{"restricted": true, "allow": []string{"gpt-4o"}})
+
+	want := []string{"gpt-4o", "cc/claude-opus-5"}
+	got := modelsOfKey(t, env, id)
+	if !got.Access.Restricted {
+		t.Errorf("access.restricted = false for a restricted key on a plan")
+	}
+	if !samePatterns(got.Access.Allow, want) {
+		t.Errorf("access.allow = %v, want the key rows unioned with the plan's %v", got.Access.Allow, want)
+	}
+	// The flat `models` field stays the key's OWN rows: it is the field the
+	// endpoint writes, so folding the plan's rows into it would let a
+	// read-modify-write copy them onto the key.
+	if !samePatterns(got.Models, []string{"gpt-4o"}) {
+		t.Errorf("/models = %v, want only the key's own rows", got.Models)
+	}
+	// The list reports the same union, so the two surfaces agree.
+	if listed := accessOfKey(t, env, id); !samePatterns(listed.Allow, want) {
+		t.Errorf("GET /api/keys access.allow = %v, want %v", listed.Allow, want)
+	}
+}
 func TestKeyAccessCorruptPayloadKeepsRestriction(t *testing.T) {
 	env := newEnv(t)
 	id := newKeyForAccess(t, env, "access-d")
