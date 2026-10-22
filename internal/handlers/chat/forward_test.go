@@ -358,3 +358,178 @@ func TestHandleStreamResponse_ActivePauseExceedsCompletionBound(t *testing.T) {
 		t.Errorf("expected response.completed in response: %s", out)
 	}
 }
+
+func TestForwardRequest_NousWireFormat(t *testing.T) {
+	var capturedBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedBody, _ = io.ReadAll(r.Body)
+		w.Header().Set(constants.HeaderContentType, constants.ContentTypeJSON)
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"choices":[{"message":{"content":"ok"}}]}`))
+	}))
+	defer srv.Close()
+
+	h, cleanup := setupHandlerForForward(t)
+	defer cleanup()
+
+	cfg := &providers.ProviderConfig{
+		BaseURL:    srv.URL,
+		AuthHeader: constants.HeaderAuthorization,
+	}
+
+	t.Run("reasoning level high", func(t *testing.T) {
+		body := []byte(`{"model":"meituan/longcat-2.0:free","messages":[{"role":"user","content":"hi"}],"reasoning_effort":"high"}`)
+		rec := httptest.NewRecorder()
+		if err := h.forwardRequest(context.Background(), rec, cfg, "test-key", body, false, false, nil, nil); err != nil {
+			t.Fatalf("forwardRequest: %v", err)
+		}
+		var parsed map[string]any
+		if err := json.Unmarshal(capturedBody, &parsed); err != nil {
+			t.Fatalf("unmarshal captured wire body: %v", err)
+		}
+		if _, exists := parsed["reasoning_effort"]; exists {
+			t.Errorf("reasoning_effort should be removed from wire request, got %s", capturedBody)
+		}
+		reasoning, ok := parsed["reasoning"].(map[string]any)
+		if !ok {
+			t.Fatalf("expected nested reasoning on wire, got %s", capturedBody)
+		}
+		if effort, _ := reasoning["effort"].(string); effort != "high" {
+			t.Errorf("expected reasoning.effort=high, got %v", reasoning["effort"])
+		}
+	})
+
+	t.Run("thinking disabled", func(t *testing.T) {
+		body := []byte(`{"model":"meituan/longcat-2.0:free","messages":[{"role":"user","content":"hi"}],"reasoning_effort":"none"}`)
+		rec := httptest.NewRecorder()
+		if err := h.forwardRequest(context.Background(), rec, cfg, "test-key", body, false, false, nil, nil); err != nil {
+			t.Fatalf("forwardRequest: %v", err)
+		}
+		var parsed map[string]any
+		if err := json.Unmarshal(capturedBody, &parsed); err != nil {
+			t.Fatalf("unmarshal captured wire body: %v", err)
+		}
+		if _, exists := parsed["reasoning_effort"]; exists {
+			t.Errorf("reasoning_effort should be removed from wire request, got %s", capturedBody)
+		}
+		if _, exists := parsed["reasoning"]; exists {
+			t.Errorf("reasoning should be omitted when disabled, got %v", parsed["reasoning"])
+		}
+	})
+
+	t.Run("reasoning auto mode", func(t *testing.T) {
+		body := []byte(`{"model":"meituan/longcat-2.0:free","messages":[{"role":"user","content":"hi"}],"reasoning_effort":"auto"}`)
+		rec := httptest.NewRecorder()
+		if err := h.forwardRequest(context.Background(), rec, cfg, "test-key", body, false, false, nil, nil); err != nil {
+			t.Fatalf("forwardRequest: %v", err)
+		}
+		var parsed map[string]any
+		if err := json.Unmarshal(capturedBody, &parsed); err != nil {
+			t.Fatalf("unmarshal captured wire body: %v", err)
+		}
+		if _, exists := parsed["reasoning_effort"]; exists {
+			t.Errorf("reasoning_effort should be removed from wire request, got %s", capturedBody)
+		}
+		reasoning, ok := parsed["reasoning"].(map[string]any)
+		if !ok {
+			t.Fatalf("expected nested reasoning on wire, got %s", capturedBody)
+		}
+		if effort, _ := reasoning["effort"].(string); effort != "medium" {
+			t.Errorf("expected reasoning.effort=medium, got %v", reasoning["effort"])
+		}
+	})
+
+	t.Run("attribution tags applied on HTTPS nous endpoint with api key", func(t *testing.T) {
+		var interceptedBody []byte
+		client := &http.Client{
+			Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+				interceptedBody, _ = io.ReadAll(r.Body)
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     make(http.Header),
+					Body:       io.NopCloser(strings.NewReader(`{"choices":[{"message":{"content":"ok"}}]}`)),
+				}, nil
+			}),
+		}
+		nousCfg := &providers.ProviderConfig{
+			BaseURL: "https://inference-api.nousresearch.com/v1/chat/completions",
+		}
+		body := []byte(`{"model":"stepfun/step-5-preview:free","messages":[{"role":"user","content":"hi"}]}`)
+		rec := httptest.NewRecorder()
+		if err := h.forwardRequest(context.Background(), rec, nousCfg, "test-key", body, false, false, nil, client); err != nil {
+			t.Fatalf("forwardRequest: %v", err)
+		}
+		var parsed map[string]any
+		if err := json.Unmarshal(interceptedBody, &parsed); err != nil {
+			t.Fatalf("unmarshal wire body: %v", err)
+		}
+		tags, ok := parsed["tags"].([]any)
+		if !ok || len(tags) == 0 {
+			t.Fatalf("expected attribution tags on wire, got %v", parsed["tags"])
+		}
+	})
+
+	t.Run("attribution tags omitted on plaintext downgrade", func(t *testing.T) {
+		var interceptedBody []byte
+		client := &http.Client{
+			Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+				interceptedBody, _ = io.ReadAll(r.Body)
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     make(http.Header),
+					Body:       io.NopCloser(strings.NewReader(`{"choices":[{"message":{"content":"ok"}}]}`)),
+				}, nil
+			}),
+		}
+		httpCfg := &providers.ProviderConfig{
+			BaseURL: "http://inference-api.nousresearch.com/v1",
+		}
+		body := []byte(`{"model":"stepfun/step-5-preview:free","messages":[{"role":"user","content":"hi"}]}`)
+		rec := httptest.NewRecorder()
+		if err := h.forwardRequest(context.Background(), rec, httpCfg, "test-key", body, false, false, nil, client); err != nil {
+			t.Fatalf("forwardRequest: %v", err)
+		}
+		var parsed map[string]any
+		if err := json.Unmarshal(interceptedBody, &parsed); err != nil {
+			t.Fatalf("unmarshal wire body: %v", err)
+		}
+		if _, exists := parsed["tags"]; exists {
+			t.Errorf("attribution tags must not be applied on plaintext endpoint, got %v", parsed["tags"])
+		}
+	})
+
+	t.Run("attribution tags omitted on evil host substring match", func(t *testing.T) {
+		var interceptedBody []byte
+		client := &http.Client{
+			Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+				interceptedBody, _ = io.ReadAll(r.Body)
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     make(http.Header),
+					Body:       io.NopCloser(strings.NewReader(`{"choices":[{"message":{"content":"ok"}}]}`)),
+				}, nil
+			}),
+		}
+		evilCfg := &providers.ProviderConfig{
+			BaseURL: "https://inference-api.nousresearch.com.evil.test/v1",
+		}
+		body := []byte(`{"model":"stepfun/step-5-preview:free","messages":[{"role":"user","content":"hi"}]}`)
+		rec := httptest.NewRecorder()
+		if err := h.forwardRequest(context.Background(), rec, evilCfg, "test-key", body, false, false, nil, client); err != nil {
+			t.Fatalf("forwardRequest: %v", err)
+		}
+		var parsed map[string]any
+		if err := json.Unmarshal(interceptedBody, &parsed); err != nil {
+			t.Fatalf("unmarshal wire body: %v", err)
+		}
+		if _, exists := parsed["tags"]; exists {
+			t.Errorf("attribution tags must not be applied on evil host, got %v", parsed["tags"])
+		}
+	})
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
+	return f(r)
+}

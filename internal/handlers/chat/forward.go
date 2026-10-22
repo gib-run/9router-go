@@ -67,8 +67,9 @@ func (h *ChatHandler) forwardRequest(
 			}
 		}
 	}
-	// Nous Portal attribution tags (upstream NOUS_ATTRIBUTION / PR #4770)
-	if strings.Contains(cfg.BaseURL, providers.NousAttributionHostname) {
+	// Nous Portal thinking dialect and attribution tags (upstream NOUS_ATTRIBUTION / PR #4770 / thinkingUnified)
+	body = providers.ApplyNousThinking(body)
+	if apiKey != "" && providers.ShouldApplyNousAttribution(cfg.BaseURL) {
 		body = providers.ApplyNousAttribution(body)
 	}
 	resp, err := internalproxy.ForwardOpenAI(ctx, httpClient, cfg, apiKey, body, isStream)
