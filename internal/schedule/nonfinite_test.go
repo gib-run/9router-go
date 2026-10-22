@@ -19,11 +19,11 @@ import (
 // tick, which is the goroutine the whole gateway's auto-ping depends on.
 func TestNormalizeRejectsNonFiniteNumbers(t *testing.T) {
 	cases := []struct {
-		name         string
-		windowHours  any
-		slotsPerDay  any
-		wantWindow   float64
-		wantSlots    int
+		name        string
+		windowHours any
+		slotsPerDay any
+		wantWindow  float64
+		wantSlots   int
 	}{
 		{"NaN window", "NaN", 3, DefaultWindowHours, 3},
 		{"NaN slots", 5.0, "NaN", 5, 3},

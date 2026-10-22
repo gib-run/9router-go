@@ -13,12 +13,12 @@ func enabled(v bool) *bool { return &v }
 // and string-typed forms upstream also accepts.
 func TestNormalizePingSchedule(t *testing.T) {
 	tests := []struct {
-		name        string
-		in          *Input
-		wantNil     bool
-		wantAnchor  string
-		wantWindow  float64
-		wantSlots   int
+		name         string
+		in           *Input
+		wantNil      bool
+		wantAnchor   string
+		wantWindow   float64
+		wantSlots    int
 		wantTimezone string
 	}{
 		{

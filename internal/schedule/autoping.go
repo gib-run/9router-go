@@ -27,7 +27,8 @@ import (
 //
 // claude: "claude-haiku-4-5-20251001", one token.
 // codex:  "gpt-5.6-terra" — the lightweight model the upstream comment names
-//         for the Codex 5h reset window.
+//
+//	for the Codex 5h reset window.
 const (
 	ClaudePingModel = "claude-haiku-4-5-20251001"
 	CodexPingModel  = "gpt-5.6-terra"

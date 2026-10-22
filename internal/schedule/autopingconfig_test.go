@@ -101,11 +101,11 @@ func TestMergeConfigNormalizesAndReplaces(t *testing.T) {
 // schedule that is not an object.
 func TestMergeConfigRejectsBadShapes(t *testing.T) {
 	cases := map[string]any{
-		"payload is not an object":      []any{1, 2},
-		"connections is not an object":  map[string]any{"connections": "yes"},
+		"payload is not an object":       []any{1, 2},
+		"connections is not an object":   map[string]any{"connections": "yes"},
 		"connection value is not a bool": map[string]any{"connections": map[string]any{"c1": "true"}},
-		"schedules is not an object":    map[string]any{"schedules": []any{}},
-		"schedule is not an object":     map[string]any{"schedules": map[string]any{"c1": "09:30"}},
+		"schedules is not an object":     map[string]any{"schedules": []any{}},
+		"schedule is not an object":      map[string]any{"schedules": map[string]any{"c1": "09:30"}},
 	}
 	for name, payload := range cases {
 		if _, err := MergeConfig(nil, payload); err == nil {

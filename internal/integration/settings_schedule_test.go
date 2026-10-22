@@ -150,9 +150,9 @@ func TestSettingsScheduleRejectsBadPayload(t *testing.T) {
 	})
 
 	for name, body := range map[string]map[string]any{
-		"schedules is not an object":    {"claudeAutoPing": map[string]any{"schedules": []any{}}},
+		"schedules is not an object":     {"claudeAutoPing": map[string]any{"schedules": []any{}}},
 		"connection value is not a bool": {"claudeAutoPing": map[string]any{"connections": map[string]any{"conn-2": "on"}}},
-		"auto-ping is not an object":    {"claudeAutoPing": "on"},
+		"auto-ping is not an object":     {"claudeAutoPing": "on"},
 	} {
 		res := env.Put(t, "/api/settings", body)
 		if res.Status != http.StatusBadRequest {
