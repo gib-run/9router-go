@@ -39,4 +39,15 @@ dashboard would report zero entries while the engine served hits, and clearing
 entries from the dashboard would leave the engine still serving them. The
 handler is returned from the router setup rather than built a second time.
 
+**A ping that fails fires once and does not retry until the next slot.** This
+is a decision, and it is the less obvious of the two. The scheduler claims the
+slot before it pings, so a provider that is briefly down gets one attempt, one
+log line, and the window is simply not started. The alternative — retrying
+every tick for the rest of the grace window — would hammer a provider that just
+refused, and the operator has no way to tell a provider that is down from one
+that is rate-limiting. The window not starting is the recoverable outcome: the
+next real request starts it, which is what happened before this feature
+existed. `TestSchedulerReportsPingErrors` pins both halves — one error
+reported, one call made, and a second tick inside the same slot does nothing.
+
 An unknown quota is reported as unknown rather than as exhausted.
