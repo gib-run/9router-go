@@ -11,5 +11,3 @@ A slash (`/`) remains a reserved character: it is the `<prefix>/<id>` address
 separator and the kv-store key delimiter, so `model2/provModel:xvertor` is
 correctly refused as one id. The operator should paste each half separately.
 
-**Files:** `web/src/lib/bulk-models.ts`, `internal/handlers/dashboard/model_id.go`,
-`web/src/lib/bulk-models.test.ts`, `internal/handlers/dashboard/model_id_test.go`
