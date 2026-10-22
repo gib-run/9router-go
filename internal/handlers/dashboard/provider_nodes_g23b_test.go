@@ -67,10 +67,10 @@ func TestValidateProviderNode_LocalCallerStillBlockedFromCloudMetadata(t *testin
 // refused without any DNS answer, so the test holds with the network off.
 func TestValidateProviderNode_LocalCallerBlockedFromMetadataSpellings(t *testing.T) {
 	for _, target := range []string{
-		"http://2852039166/latest/meta-data/",                     // 169.254.169.254 decimal
-		"http://metadata.google.internal/latest/meta-data/",       // GCP documented name
-		"http://169.254.169.254.nip.io/latest/meta-data/",         // wildcard DNS, dotted
-		"http://169-254-169-254.sslip.io/latest/meta-data/",       // wildcard DNS, dashed
+		"http://2852039166/latest/meta-data/",               // 169.254.169.254 decimal
+		"http://metadata.google.internal/latest/meta-data/", // GCP documented name
+		"http://169.254.169.254.nip.io/latest/meta-data/",   // wildcard DNS, dotted
+		"http://169-254-169-254.sslip.io/latest/meta-data/", // wildcard DNS, dashed
 	} {
 		t.Run(target, func(t *testing.T) {
 			calls := staticProbeStub(t, http.StatusOK)
