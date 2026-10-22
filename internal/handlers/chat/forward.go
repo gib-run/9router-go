@@ -279,7 +279,7 @@ func sseToClaudeJSON(raw []byte) ([]byte, bool) {
 					if n, ok := fn["name"].(string); ok && n != "" {
 						if existing, _ := fEntry["name"].(string); existing == "" {
 							fEntry["name"] = n
-						} else if existing != n && !strings.Contains(existing, n) {
+						} else {
 							fEntry["name"] = existing + n
 						}
 					}
