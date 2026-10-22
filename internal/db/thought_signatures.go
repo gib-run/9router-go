@@ -103,7 +103,7 @@ func (r *Repo) LoadThoughtSignatures(ctx context.Context, limit int) ([]ThoughtS
 	rows, err := r.db.QueryContext(
 		ctx,
 		`SELECT key, signature, family, expiresAt FROM thoughtSignatures
-		 WHERE expiresAt > ? ORDER BY updatedAt DESC LIMIT ?`,
+		 WHERE expiresAt > ? ORDER BY updatedAt DESC, rowid DESC LIMIT ?`,
 		nowUTC(), limit,
 	)
 	if err != nil {
@@ -136,6 +136,11 @@ func (r *Repo) LoadThoughtSignatures(ctx context.Context, limit int) ([]ThoughtS
 // many went. Pruning by expiry alone leaves the table unbounded on a gateway
 // that keeps serving: a tool-heavy client writes rows faster than an hour-long
 // TTL retires them, so the disk tier needs a size ceiling as well as a clock.
+//
+// The order is (updatedAt, rowid): updatedAt is stored at second resolution, so
+// a burst writes many rows that share one timestamp and the tiebreak decides
+// which survive. Without it the order is whatever the scan produced, and the
+// trim can delete the rows written last.
 func (r *Repo) TrimThoughtSignatures(ctx context.Context, keep int) (int64, error) {
 	if keep < 0 {
 		keep = 0
@@ -144,7 +149,7 @@ func (r *Repo) TrimThoughtSignatures(ctx context.Context, keep int) (int64, erro
 		ctx,
 		`DELETE FROM thoughtSignatures WHERE key IN (
 			SELECT key FROM thoughtSignatures
-			ORDER BY updatedAt DESC
+			ORDER BY updatedAt DESC, rowid DESC
 			LIMIT -1 OFFSET ?
 		)`, keep,
 	)

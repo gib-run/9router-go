@@ -30,6 +30,13 @@ const (
 	// writeQueueDepth absorbs a burst of tool calls without blocking the
 	// request that produced them (discovery doc §3.2).
 	writeQueueDepth = 1024
+
+	// trimEveryWrites is how many rows the writer inserts between two trims.
+	// The hourly ticker alone left the table unmanaged for its whole interval:
+	// a burst of 22 000 tool calls measured 27 190 rows (3.7 MB) and stayed
+	// there until the next tick. Trimming on the writer bounds the overshoot
+	// at one batch instead of one hour.
+	trimEveryWrites = 1000
 )
 
 // asyncWriteTask is one row for the background writer. A nil key is a barrier:
@@ -67,6 +74,17 @@ func SignatureFamily(model string) string {
 
 func isFamilyCompatible(entryFamily, targetFamily string) bool {
 	return entryFamily == "" || targetFamily == "" || entryFamily == targetFamily
+}
+
+// l1Expiry is the in-memory deadline for a row read from disk: the memory TTL,
+// which is the tier's own contract, capped by when the row itself expires so a
+// shorter-lived row is never outlived by its copy in memory.
+func l1Expiry(now, rowExpiry time.Time) time.Time {
+	memExpiry := now.Add(memoryTTL)
+	if memExpiry.After(rowExpiry) {
+		return rowExpiry
+	}
+	return memExpiry
 }
 
 type thoughtSignatureStore struct {
@@ -165,10 +183,13 @@ func SetThoughtSignaturePersistence(p thoughtSignaturePersister) {
 			if !now.Before(row.ExpiresAt) {
 				continue
 			}
+			// The row carries the seven-day disk expiry; memory keeps its own
+			// one-hour clock. Copying the disk value upward retired the memory
+			// TTL entirely, so an entry evicted from L1 could never age out.
 			store.entries[row.Key] = signatureEntry{
 				signature: row.Signature,
 				family:    row.Family,
-				expiresAt: row.ExpiresAt,
+				expiresAt: l1Expiry(now, row.ExpiresAt),
 			}
 			store.order = append(store.order, row.Key)
 		}
@@ -196,10 +217,17 @@ func SetThoughtSignaturePersistence(p thoughtSignaturePersister) {
 // so two tool calls in flight never contend for SQLite's write lock on the
 // request path (discovery doc §3.2).
 func (s *thoughtSignatureStore) writeLoop(p thoughtSignaturePersister, queue <-chan asyncWriteTask, stop <-chan struct{}) {
+	writes := 0
 	for {
 		select {
 		case task := <-queue:
-			s.runWrite(p, task)
+			if s.runWrite(p, task) {
+				writes++
+			}
+			if writes >= trimEveryWrites {
+				writes = 0
+				s.trimPersisted(p)
+			}
 		case <-stop:
 			// Graceful shutdown: whatever is already queued still lands, so a
 			// restart does not lose signatures that were accepted (§3.4).
@@ -215,14 +243,25 @@ func (s *thoughtSignatureStore) writeLoop(p thoughtSignaturePersister, queue <-c
 	}
 }
 
-func (s *thoughtSignatureStore) runWrite(p thoughtSignaturePersister, task asyncWriteTask) {
+// trimPersisted enforces the row ceiling from the writer, so the table stops at
+// its budget during a burst rather than at the next hourly tick.
+func (s *thoughtSignatureStore) trimPersisted(p thoughtSignaturePersister) {
+	if _, err := p.TrimThoughtSignatures(context.Background(), maxPersistentSignatures); err != nil {
+		log.Warn("translator", "thought signature trim skipped", "error", err)
+	}
+}
+
+// runWrite saves one row and reports whether a row was actually attempted (a
+// barrier writes nothing, so it must not count toward the next trim).
+func (s *thoughtSignatureStore) runWrite(p thoughtSignaturePersister, task asyncWriteTask) bool {
 	if task.done != nil {
 		close(task.done)
-		return
+		return false
 	}
 	if err := p.SaveThoughtSignature(context.Background(), task.key, task.signature, task.family, task.expiresAt); err != nil {
 		log.Warn("translator", "thought signature persist skipped", "error", err)
 	}
+	return true
 }
 
 // pruneLoop deletes expired rows on the same cadence as the memory TTL.
@@ -369,7 +408,16 @@ func StoreGeminiThoughtSignature(toolCallID, signature, sessionID string, model 
 	globalThoughtSigStore.enqueueSignatureWrites(queue, keys, signature, family, diskExp)
 }
 
-// GetGeminiThoughtSignature retrieves a thought signature by tool_call_id (checking session namespace first and matching model family).
+// GetGeminiThoughtSignature retrieves a thought signature by tool_call_id,
+// scoped to the conversation that produced it and matched against the model
+// family.
+//
+// A non-empty sessionID makes the lookup session-only: the bare toolCallID key
+// is shared by every conversation on the account, so falling back to it is how
+// one conversation replayed another's signature and the provider answered
+// 400 INVALID_ARGUMENT "Corrupted thought signature". A request with no session
+// (a client that sends no session header) keeps the bare-key lookup, which is
+// also the key such a request writes.
 func GetGeminiThoughtSignature(toolCallID, sessionID string, model ...string) string {
 	if toolCallID == "" {
 		return ""
@@ -384,36 +432,18 @@ func GetGeminiThoughtSignature(toolCallID, sessionID string, model ...string) st
 		cleanID = toolCallID[:idx]
 	}
 
+	candidates := signatureLookupKeys(toolCallID, cleanID, sessionID)
 	now := time.Now()
 
 	globalThoughtSigStore.mu.RLock()
-
-	// 1. Session-scoped check
-	if sessionID != "" {
-		if entry, ok := globalThoughtSigStore.entries[sessionID+":"+toolCallID]; ok && now.Before(entry.expiresAt) && isFamilyCompatible(entry.family, targetFamily) {
-			globalThoughtSigStore.mu.RUnlock()
-			return entry.signature
+	for _, k := range candidates {
+		entry, ok := globalThoughtSigStore.entries[k]
+		if !ok || !now.Before(entry.expiresAt) || !isFamilyCompatible(entry.family, targetFamily) {
+			continue
 		}
-		if cleanID != toolCallID {
-			if entry, ok := globalThoughtSigStore.entries[sessionID+":"+cleanID]; ok && now.Before(entry.expiresAt) && isFamilyCompatible(entry.family, targetFamily) {
-				globalThoughtSigStore.mu.RUnlock()
-				return entry.signature
-			}
-		}
-	}
-
-	// 2. Global toolCallID check
-	if entry, ok := globalThoughtSigStore.entries[toolCallID]; ok && now.Before(entry.expiresAt) && isFamilyCompatible(entry.family, targetFamily) {
 		globalThoughtSigStore.mu.RUnlock()
 		return entry.signature
 	}
-	if cleanID != toolCallID {
-		if entry, ok := globalThoughtSigStore.entries[cleanID]; ok && now.Before(entry.expiresAt) && isFamilyCompatible(entry.family, targetFamily) {
-			globalThoughtSigStore.mu.RUnlock()
-			return entry.signature
-		}
-	}
-
 	persister := globalThoughtSigStore.persist
 	globalThoughtSigStore.mu.RUnlock()
 
@@ -421,21 +451,9 @@ func GetGeminiThoughtSignature(toolCallID, sessionID string, model ...string) st
 		return ""
 	}
 
-	// 3. Memory miss with persistence attached: the row may have been evicted
-	// from the hot map (2000-entry cap) or written by a previous process whose
-	// boot hydrate ran before this key existed. Read through and repopulate.
-	candidates := make([]string, 0, 4)
-	if sessionID != "" {
-		candidates = append(candidates, sessionID+":"+toolCallID)
-		if cleanID != toolCallID {
-			candidates = append(candidates, sessionID+":"+cleanID)
-		}
-	}
-	candidates = append(candidates, toolCallID)
-	if cleanID != toolCallID {
-		candidates = append(candidates, cleanID)
-	}
-
+	// Memory miss with persistence attached: the row may have been evicted from
+	// the hot map (2000-entry cap) or written by a previous process whose boot
+	// hydrate ran before this key existed. Read through and repopulate.
 	for _, k := range candidates {
 		row, err := persister.GetThoughtSignature(context.Background(), k)
 		if err != nil {
@@ -453,12 +471,38 @@ func GetGeminiThoughtSignature(toolCallID, sessionID string, model ...string) st
 		globalThoughtSigStore.entries[k] = signatureEntry{
 			signature: row.Signature,
 			family:    row.Family,
-			expiresAt: row.ExpiresAt,
+			expiresAt: l1Expiry(time.Now(), row.ExpiresAt),
+		}
+		// A read-through repopulates the same bounded map a write does, so it
+		// prunes the same way: without this, 2 500 lookups left 2 500 entries
+		// against a 2 000-entry cap, because the map was only trimmed when a
+		// write happened to come along. Gated on the cap so the common miss
+		// does not pay a whole-map scan.
+		if len(globalThoughtSigStore.entries) > maxMemorySignatures {
+			globalThoughtSigStore.pruneExpiredLocked(time.Now())
 		}
 		globalThoughtSigStore.mu.Unlock()
 		return row.Signature
 	}
 	return ""
+}
+
+// signatureLookupKeys lists the store keys a lookup may read, most specific
+// first. A session-scoped request may only read its own namespace; a request
+// with no session reads the bare keys, which is what it writes.
+func signatureLookupKeys(toolCallID, cleanID, sessionID string) []string {
+	if sessionID == "" {
+		keys := []string{toolCallID}
+		if cleanID != toolCallID {
+			keys = append(keys, cleanID)
+		}
+		return keys
+	}
+	keys := []string{sessionID + ":" + toolCallID}
+	if cleanID != toolCallID {
+		keys = append(keys, sessionID+":"+cleanID)
+	}
+	return keys
 }
 
 // ClearGeminiThoughtSignatures resets the store (useful for tests).
