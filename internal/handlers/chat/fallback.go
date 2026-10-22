@@ -1,6 +1,18 @@
 package chat
 
 import (
+	"9router/proxy/internal/handlerutil"
+	"9router/proxy/internal/headroom"
+	"9router/proxy/internal/log"
+	"9router/proxy/internal/middleware"
+	"9router/proxy/internal/observ"
+	"9router/proxy/internal/providers"
+	"9router/proxy/internal/proxy/executor"
+	"9router/proxy/internal/thinking"
+	"9router/proxy/internal/tokensaver"
+	"9router/proxy/internal/tracing"
+	"9router/proxy/internal/translator"
+	"9router/proxy/internal/usagetracker"
 	"bytes"
 	"context"
 	json "encoding/json/v2"
@@ -13,18 +25,7 @@ import (
 	"strings"
 	"time"
 
-	"9router/proxy/internal/handlerutil"
-	"9router/proxy/internal/headroom"
-	"9router/proxy/internal/log"
-	"9router/proxy/internal/middleware"
-	"9router/proxy/internal/observ"
-	"9router/proxy/internal/providers"
 	internalproxy "9router/proxy/internal/proxy"
-	"9router/proxy/internal/proxy/executor"
-	"9router/proxy/internal/tokensaver"
-	"9router/proxy/internal/tracing"
-	"9router/proxy/internal/translator"
-	"9router/proxy/internal/usagetracker"
 )
 
 // StatusClientClosedRequest is the canonical HTTP status for client connection aborts (nginx 499).
@@ -381,6 +382,10 @@ func (h *ChatHandler) tryForwardWithConnection(f forwardRequestParams) error {
 	connectionID, connData := f.ConnectionID, f.ConnData
 	body, isStream := f.Body, f.IsStream
 	translateResponse, endpoint := f.TranslateResponse, f.Endpoint
+	// Unified thinking normalisation, inbound half: capture the client's
+	// reasoning intent before any converter rewrites the body. model stays
+	// the requested id for logs/usage; wireModel is suffix-free.
+	body, wireModel, thinkingIntent := h.prepareInboundThinking(ctx, provider, model, body, f.Endpoint == "/v1/v1/messages" || f.Endpoint == "/v1/messages")
 	ctx = translator.WithUsageCapture(ctx)
 
 	providerCfg, err := h.getProviderConfig(provider, connData)
@@ -501,7 +506,7 @@ func (h *ChatHandler) tryForwardWithConnection(f forwardRequestParams) error {
 			var reqMap map[string]any
 			if err := json.Unmarshal(pipedBody, &reqMap); err == nil {
 				claudeToolMap = cloakClaudeTools(reqMap)
-				if out, err := json.Marshal(reqMap); err == nil {
+				if out, err := json.Marshal(reqMap, json.Deterministic(true)); err == nil {
 					pipedBody = out
 				}
 			}
@@ -512,7 +517,7 @@ func (h *ChatHandler) tryForwardWithConnection(f forwardRequestParams) error {
 	// redact-thinking beta: it asks Anthropic for signature-only thinking blocks
 	// and would blank exactly what the client requested. The header map is
 	// shared with the registry, so this edits a request-local copy.
-	if isAnthropic && executor.WantsThinkingSummaries(pipedBody) {
+	if isAnthropic && thinking.BodyMentionsThinking(pipedBody) && executor.WantsThinkingSummaries(pipedBody) {
 		providerCfg.StaticHeaders = providers.WithoutBetaFlag(
 			providerCfg.StaticHeaders, providers.AnthropicBetaRedactThinking,
 		)
@@ -575,6 +580,49 @@ func (h *ChatHandler) tryForwardWithConnection(f forwardRequestParams) error {
 		}
 		for k, v := range fittedToolMap {
 			claudeToolMap[k] = v
+		}
+	}
+	// Unified thinking normalisation, outbound half (port of open-sse
+	// applyThinking and filterToOpenAIFormat). Runs last on the wire body so
+	// no converter can resurrect a dialect the target rejects. Claude-native
+	// clients author their own Claude thinking and keep their existing
+	// handling.
+	//
+	// The target format is the wire the upstream speaks, not the shape the
+	// client sent: a Responses-native upstream (opencode, muse, a custom
+	// node on a /responses endpoint) reads reasoning:{effort,summary} and
+	// rejects a top-level reasoning_effort, so the pass runs there too —
+	// upstream applies the thinking pass for every target format
+	// (open-sse/translator/index.js:137). The mandatory-reasoning clamp is
+	// part of the writer, so the Responses lane gets it as well.
+	if !claudeNative {
+		target := "openai"
+		switch {
+		case executor.UpstreamSpeaksResponses(provider, wireModel, providerCfg):
+			target = "openai-responses"
+		case isAnthropic || upstreamClaude:
+			// A provider whose own endpoint speaks the Messages format
+			// (minimax-code on the mavis gateway) gets the Claude wire: its
+			// body was converted above, and the OpenAI filter would strip the
+			// tool_use blocks and rewrite its tools into a shape the Messages
+			// API rejects.
+			target = "claude"
+		}
+		pipedBody = thinking.ApplyJSON(pipedBody, target, provider, wireModel, thinkingIntent)
+		if target == "openai" && !providerCfg.IsGeminiNative() {
+			filtered, filterErr := translator.FilterToOpenAIFormatJSON(pipedBody, translator.FilterOptions{
+				PreserveCacheControl: providers.PreservesCacheControl(provider),
+			})
+			if filterErr != nil {
+				// The request lost every message. The upstream answers an
+				// empty messages array with a 400, so the gateway says so
+				// itself instead of spending the call.
+				return &upstreamError{
+					StatusCode: http.StatusBadRequest,
+					Body:       []byte(`{"error":{"type":"invalid_request_error","message":"the request carries no messages"}}`),
+				}
+			}
+			pipedBody = filtered
 		}
 	}
 	start := time.Now()
@@ -1011,6 +1059,7 @@ func (h *ChatHandler) tryForwardWithConnection(f forwardRequestParams) error {
 	}
 	return fwdErr
 }
+
 func isClientCanceled(ctx context.Context, err error) bool {
 	if ctx != nil && ctx.Err() != nil {
 		return true

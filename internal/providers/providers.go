@@ -24,6 +24,16 @@ type ProviderConfig struct {
 	FetchURL      string            // override /web/fetch endpoint (Jina, Firecrawl, etc.)
 	FetchMethod   string            // HTTP method for fetch: GET or POST (default POST)
 	UsageURL      string            // override /usage endpoint (quota tracker)
+	// ThinkingFormat mirrors the upstream registry's transport.thinkingFormat:
+	// the wire dialect this provider expects for reasoning fields ("" = the
+	// model's capability decides). Consumed by internal/thinking.resolveFormat.
+	ThinkingFormat string
+
+	// PreserveCacheControl mirrors the upstream registry's
+	// quirks.preserveCacheControl: a provider registered with it keeps the
+	// cache_control markers on its content blocks, so the OpenAI filter must
+	// not strip them.
+	PreserveCacheControl bool
 
 	// UpstreamIsAnthropic marks an entry whose upstream speaks Anthropic Messages while
 	// the client may speak OpenAI, on a host that is not api.anthropic.com. The existing
@@ -346,12 +356,13 @@ var KnownProviders = map[string]ProviderConfig{
 		AuthScheme: "bearer",
 	},
 	"openrouter": {
-		BaseURL:      "https://openrouter.ai/api/v1/chat/completions",
-		AuthHeader:   "Authorization",
-		AuthScheme:   "bearer",
-		ImageURL:     "https://openrouter.ai/api/v1/images/generations",
-		VideoURL:     "https://openrouter.ai/api/v1/videos",
-		SystemoneURL: "https://openrouter.ai/api/v1/systemone",
+		BaseURL:        "https://openrouter.ai/api/v1/chat/completions",
+		AuthHeader:     "Authorization",
+		AuthScheme:     "bearer",
+		ThinkingFormat: "openai",
+		ImageURL:       "https://openrouter.ai/api/v1/images/generations",
+		VideoURL:       "https://openrouter.ai/api/v1/videos",
+		SystemoneURL:   "https://openrouter.ai/api/v1/systemone",
 		StaticHeaders: map[string]string{
 			"HTTP-Referer": "https://endpoint-proxy.local",
 			"X-Title":      "Endpoint Proxy",
@@ -482,14 +493,16 @@ var KnownProviders = map[string]ProviderConfig{
 		FetchMethod: "POST",
 	},
 	"siliconflow": {
-		BaseURL:    "https://api.siliconflow.com/v1/chat/completions",
-		AuthHeader: "Authorization",
-		AuthScheme: "bearer",
+		BaseURL:        "https://api.siliconflow.com/v1/chat/completions",
+		AuthHeader:     "Authorization",
+		AuthScheme:     "bearer",
+		ThinkingFormat: "openai",
 	},
 	"cloudflare-ai": {
-		BaseURL:    "https://api.cloudflare.com/client/v4/accounts/" + os.Getenv("CLOUDFLARE_ACCOUNT_ID") + "/ai/v1/chat/completions",
-		AuthHeader: "Authorization",
-		AuthScheme: "bearer",
+		BaseURL:        "https://api.cloudflare.com/client/v4/accounts/" + os.Getenv("CLOUDFLARE_ACCOUNT_ID") + "/ai/v1/chat/completions",
+		AuthHeader:     "Authorization",
+		AuthScheme:     "bearer",
+		ThinkingFormat: "openai",
 	},
 	"mimo-free": {
 		BaseURL:       "https://api.xiaomimimimo.com/api/free-ai/openai/chat",
@@ -499,9 +512,10 @@ var KnownProviders = map[string]ProviderConfig{
 		NoAuth:        true,
 	},
 	"blackbox": {
-		BaseURL:    "https://api.blackbox.ai/v1/chat/completions",
-		AuthHeader: "Authorization",
-		AuthScheme: "bearer",
+		BaseURL:        "https://api.blackbox.ai/v1/chat/completions",
+		AuthHeader:     "Authorization",
+		AuthScheme:     "bearer",
+		ThinkingFormat: "openai",
 	},
 	"featherless": {
 		BaseURL:    "https://api.featherless.ai/v1/chat/completions",
@@ -529,14 +543,16 @@ var KnownProviders = map[string]ProviderConfig{
 		AuthScheme: "bearer",
 	},
 	"venice": {
-		BaseURL:    "https://api.venice.ai/api/v1/chat/completions",
-		AuthHeader: "Authorization",
-		AuthScheme: "bearer",
+		BaseURL:        "https://api.venice.ai/api/v1/chat/completions",
+		AuthHeader:     "Authorization",
+		AuthScheme:     "bearer",
+		ThinkingFormat: "openai",
 	},
 	"vercel-ai-gateway": {
-		BaseURL:    "https://ai-gateway.vercel.sh/v1/chat/completions",
-		AuthHeader: "Authorization",
-		AuthScheme: "bearer",
+		BaseURL:        "https://ai-gateway.vercel.sh/v1/chat/completions",
+		AuthHeader:     "Authorization",
+		AuthScheme:     "bearer",
+		ThinkingFormat: "openai",
 	},
 	"volcengine-ark": {
 		BaseURL:    "https://ark.cn-beijing.volces.com/api/coding/v3/chat/completions",
@@ -562,27 +578,25 @@ var KnownProviders = map[string]ProviderConfig{
 		BaseURL:    "https://api.cline.bot/api/v1/chat/completions",
 		AuthHeader: "Authorization",
 		AuthScheme: "bearer",
-		StaticHeaders: map[string]string{
-			"HTTP-Referer":       "https://cline.bot",
-			"X-Title":            "Cline",
-			"User-Agent":         "Cline/3.0.61",
-			"X-PLATFORM":         "cli",
-			"X-PLATFORM-VERSION": "3.0.61",
-			"X-CLIENT-TYPE":      "cline-cli",
-			"X-CLIENT-VERSION":   "3.0.61",
-			"X-CORE-VERSION":     "3.0.61",
-			"X-IS-MULTIROOT":     "false",
-		},
+		// No StaticHeaders: the 9Router client identity (upstream
+		// buildClineHeaders) carries the linked version, which a registry
+		// literal cannot see (import cycle). getProviderConfig injects it
+		// per request via ClineIdentityHeaders.
 	},
 	"alicode": {
 		BaseURL:    "https://coding.dashscope.aliyuncs.com/v1/chat/completions",
 		AuthHeader: "Authorization",
 		AuthScheme: "bearer",
+		// Upstream registers the preserveCacheControl quirk for the alicode
+		// family: these gateways answer 400 when the cache_control markers are
+		// stripped from the content blocks.
+		PreserveCacheControl: true,
 	},
 	"alicode-intl": {
-		BaseURL:    "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions",
-		AuthHeader: "Authorization",
-		AuthScheme: "bearer",
+		BaseURL:              "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions",
+		AuthHeader:           "Authorization",
+		AuthScheme:           "bearer",
+		PreserveCacheControl: true,
 	},
 	"byteplus": {
 		BaseURL:    "https://ark.ap-southeast.bytepluses.com/api/coding/v3/chat/completions",
@@ -590,9 +604,10 @@ var KnownProviders = map[string]ProviderConfig{
 		AuthScheme: "bearer",
 	},
 	"codebuddy-cn": {
-		BaseURL:    "https://copilot.tencent.com/v2/chat/completions",
-		AuthHeader: "Authorization",
-		AuthScheme: "bearer",
+		BaseURL:        "https://copilot.tencent.com/v2/chat/completions",
+		AuthHeader:     "Authorization",
+		AuthScheme:     "bearer",
+		ThinkingFormat: "openai",
 		StaticHeaders: map[string]string{
 			"User-Agent":          "CLI/2.108.1 CodeBuddy/2.108.1",
 			"X-Product":           "SaaS",
@@ -603,9 +618,10 @@ var KnownProviders = map[string]ProviderConfig{
 		},
 	},
 	"codebuddy-intl": {
-		BaseURL:    "https://www.codebuddy.ai/v2/chat/completions",
-		AuthHeader: "Authorization",
-		AuthScheme: "bearer",
+		BaseURL:        "https://www.codebuddy.ai/v2/chat/completions",
+		AuthHeader:     "Authorization",
+		AuthScheme:     "bearer",
+		ThinkingFormat: "openai",
 		StaticHeaders: map[string]string{
 			"User-Agent":          "IDE/2.108.1 CodeBuddy/2.108.1",
 			"X-Product":           "SaaS",
@@ -639,14 +655,16 @@ var KnownProviders = map[string]ProviderConfig{
 		},
 	},
 	"iflow": {
-		BaseURL:    "https://apis.iflow.cn/v1/chat/completions",
-		AuthHeader: "Authorization",
-		AuthScheme: "bearer",
+		BaseURL:        "https://apis.iflow.cn/v1/chat/completions",
+		AuthHeader:     "Authorization",
+		AuthScheme:     "bearer",
+		ThinkingFormat: "openai",
 	},
 	"alitp-intl": {
-		BaseURL:    "https://token-plan.ap-southeast-1.aliyuncs.com/v1/chat/completions",
-		AuthHeader: "Authorization",
-		AuthScheme: "bearer",
+		BaseURL:              "https://token-plan.ap-southeast-1.aliyuncs.com/v1/chat/completions",
+		AuthHeader:           "Authorization",
+		AuthScheme:           "bearer",
+		PreserveCacheControl: true,
 	},
 	"fish-audio": {
 		BaseURL:    "https://api.fish.audio/v1/tts",
@@ -673,17 +691,7 @@ var KnownProviders = map[string]ProviderConfig{
 		BaseURL:    "https://api.cline.bot/api/v1/chat/completions",
 		AuthHeader: "Authorization",
 		AuthScheme: "bearer",
-		StaticHeaders: map[string]string{
-			"HTTP-Referer":       "https://cline.bot",
-			"X-Title":            "Cline",
-			"User-Agent":         "Cline/3.0.61",
-			"X-PLATFORM":         "cli",
-			"X-PLATFORM-VERSION": "3.0.61",
-			"X-CLIENT-TYPE":      "cline-cli",
-			"X-CLIENT-VERSION":   "3.0.61",
-			"X-CORE-VERSION":     "3.0.61",
-			"X-IS-MULTIROOT":     "false",
-		},
+		// No StaticHeaders: see "cline" above.
 	},
 	"perplexity-agent": {
 		BaseURL:    "https://api.perplexity.ai/v1/responses",
@@ -724,10 +732,11 @@ var KnownProviders = map[string]ProviderConfig{
 	// (AGENTS.md §3.A). Port of upstream decolua/9router registry
 	// minimax-code.js / minimax-code-global.js.
 	"minimax-code": {
-		BaseURL:    "https://agent.minimax.cn/mavis/api/v1/llm/v1/messages",
-		AuthHeader: "Authorization",
-		AuthScheme: "bearer",
-		Format:     "claude",
+		BaseURL:        "https://agent.minimax.cn/mavis/api/v1/llm/v1/messages",
+		AuthHeader:     "Authorization",
+		AuthScheme:     "bearer",
+		ThinkingFormat: "claude-adaptive",
+		Format:         "claude",
 		StaticHeaders: map[string]string{
 			"User-Agent":       "MiniMaxAgent",
 			"X-Mavis-Agent-Id": "main",
@@ -737,10 +746,11 @@ var KnownProviders = map[string]ProviderConfig{
 		},
 	},
 	"minimax-code-global": {
-		BaseURL:    "https://agent.minimax.io/mavis/api/v1/llm/v1/messages",
-		AuthHeader: "Authorization",
-		AuthScheme: "bearer",
-		Format:     "claude",
+		BaseURL:        "https://agent.minimax.io/mavis/api/v1/llm/v1/messages",
+		AuthHeader:     "Authorization",
+		AuthScheme:     "bearer",
+		ThinkingFormat: "claude-adaptive",
+		Format:         "claude",
 		StaticHeaders: map[string]string{
 			"User-Agent":        "MiniMaxAgent",
 			"X-Mavis-Agent-Id":  "main",
@@ -787,6 +797,10 @@ var KnownProviders = map[string]ProviderConfig{
 		BaseURL:    "https://q.us-east-1.amazonaws.com/generateAssistantResponse",
 		AuthHeader: "Authorization",
 		AuthScheme: "bearer",
+		// The Kiro envelope carries the effort in its own schema, not in a body
+		// field. Declaring the format keeps the pass from forwarding a
+		// reasoning dialect the envelope does not carry.
+		ThinkingFormat: "kiro",
 	},
 	"bedrock": {
 		// The executor substitutes the region per request and signs each request with
@@ -1074,9 +1088,10 @@ var KnownProviders = map[string]ProviderConfig{
 		AuthScheme: "bearer",
 	},
 	"alims-intl": {
-		BaseURL:    "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions",
-		AuthHeader: "Authorization",
-		AuthScheme: "bearer",
+		BaseURL:              "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions",
+		AuthHeader:           "Authorization",
+		AuthScheme:           "bearer",
+		PreserveCacheControl: true,
 	},
 	"api-airforce": {
 		BaseURL:    "https://api.airforce/v1/chat/completions",
@@ -1143,9 +1158,10 @@ var KnownProviders = map[string]ProviderConfig{
 		AuthScheme: "bearer",
 	},
 	"tokenrouter": {
-		BaseURL:    "https://api.tokenrouter.com/v1/chat/completions",
-		AuthHeader: "Authorization",
-		AuthScheme: "bearer",
+		BaseURL:        "https://api.tokenrouter.com/v1/chat/completions",
+		AuthHeader:     "Authorization",
+		AuthScheme:     "bearer",
+		ThinkingFormat: "tokenrouter",
 	},
 	"trae": {
 		BaseURL:    "https://core-normal.trae.ai/api/remote/v1",
@@ -1186,6 +1202,15 @@ var RetryableStatusCodes = map[int]bool{
 	http.StatusBadGateway:         true, // 502
 	http.StatusServiceUnavailable: true, // 503
 	http.StatusGatewayTimeout:     true, // 504
+}
+
+// PreservesCacheControl reports whether a provider keeps the cache_control
+// markers on its content blocks (upstream's quirks.preserveCacheControl).
+func PreservesCacheControl(provider string) bool {
+	if cfg, ok := KnownProviders[provider]; ok {
+		return cfg.PreserveCacheControl
+	}
+	return false
 }
 
 // IsLocalByDesign reports whether a provider's official upstream is intended
