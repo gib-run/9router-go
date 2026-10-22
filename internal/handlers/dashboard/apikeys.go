@@ -62,7 +62,7 @@ func (h *DashboardHandler) HandleGetApiKeys(w http.ResponseWriter, r *http.Reque
 		if k == nil {
 			continue
 		}
-		access := accessFromPatterns(allowlists[k.ID])
+		var access keyAccess
 		if accessReadFailed {
 			access = keyAccess{Restricted: true, Allow: []string{}}
 		} else {
@@ -79,7 +79,7 @@ func (h *DashboardHandler) HandleGetApiKeys(w http.ResponseWriter, r *http.Reque
 			// the gate enforces and what an operator reading the list means by
 			// "what may this key call".
 			"access": access,
-			"id": k.ID, "key": apiKeySecretFor(k, privileged), "keyDisplay": apiKeyDisplay(k), "name": k.Name,
+			"id":     k.ID, "key": apiKeySecretFor(k, privileged), "keyDisplay": apiKeyDisplay(k), "name": k.Name,
 			"machineId": k.MachineID, "isActive": k.IsActive, "createdAt": k.CreatedAt,
 			// The governance columns belong in the list, not only behind a
 			// per-key fetch: the dashboard has to tell a constrained key from
