@@ -34,15 +34,71 @@ const (
 	CodexPingModel  = "gpt-5.6-terra"
 
 	// PingText is the prompt every ping sends. Upstream sends "hi" for both
-	// providers; the Codex instructions line ("Reply with OK.") rides along
+	// providers, and the Codex instructions line ("Reply with OK.") rides along
 	// as the Responses `instructions` field.
 	PingText = "hi"
+
+	// CodexInstructions is the Responses `instructions` value for a Codex ping.
+	// Upstream sends it (quotaAutoPing.js) so the model answers "OK" rather
+	// than treating the bare prompt as an open question.
+	CodexInstructions = "Reply with OK."
 
 	// PingMaxTokens caps the answer. Upstream sends max_tokens: 1 for Claude;
 	// the Codex backend rejects a max_output_tokens it did not ask for, so
 	// the codex executor strips it (internal/proxy/executor/providers.go).
 	PingMaxTokens = 1
 )
+
+// CodexPingBody builds the chat-completions body a Codex ping sends.
+//
+// The two Codex-only fields are the ones that make a ping cheap rather than
+// an ordinary turn:
+//
+//   - `reasoning: {effort:"none"}` suppresses reasoning tokens. Without it the
+//     model runs its default effort, and max_tokens is stripped before the
+//     request leaves (codex_token_params.go), so the ping's output is
+//     unbounded as well as expensive. gpt-5.6-terra at default effort can cost
+//     10-50x what a one-token ping should.
+//   - `instructions` is carried through by buildResponsesBody
+//     (internal/proxy/executor/transform.go) into the Responses `instructions`
+//     field; a system message would do the same, but the upstream reference
+//     sends the field directly.
+//
+// `stream: true` is deliberate. Codex only starts the 5h window once the
+// streaming response completes (upstream quotaAutoPing.js), and the chat lane
+// drains the body, so the window starts on the ping that caused it rather than
+// as a side effect of the transform's own `stream:true`.
+func CodexPingBody(model string) ([]byte, error) {
+	return json.Marshal(map[string]any{
+		"model":        model,
+		"instructions": CodexInstructions,
+		"max_tokens":   PingMaxTokens,
+		"stream":       true,
+		"reasoning": map[string]any{
+			"effort":  "none",
+			"summary": "auto",
+		},
+		"messages": []map[string]any{
+			{"role": "user", "content": PingText},
+		},
+	})
+}
+
+// buildPingBody picks the body shape for a provider. Claude takes the plain
+// one-token request; Codex needs the cheap-reasoning fields.
+func buildPingBody(provider, model string) ([]byte, error) {
+	if provider == "codex" {
+		return CodexPingBody(model)
+	}
+	return json.Marshal(map[string]any{
+		"model":      model,
+		"max_tokens": PingMaxTokens,
+		"stream":     false,
+		"messages": []map[string]any{
+			{"role": "user", "content": PingText},
+		},
+	})
+}
 
 // PingModel returns the lightweight model one provider's ping uses.
 func PingModel(provider string) string {
@@ -87,14 +143,7 @@ func PingConnection(ctx context.Context, chatH *chat.ChatHandler, provider, conn
 	defer cancel()
 
 	model := PingModel(provider)
-	body, err := json.Marshal(map[string]any{
-		"model":      model,
-		"max_tokens": PingMaxTokens,
-		"stream":     false,
-		"messages": []map[string]any{
-			{"role": "user", "content": PingText},
-		},
-	})
+	body, err := buildPingBody(provider, model)
 	if err != nil {
 		return fmt.Errorf("build ping body: %w", err)
 	}

@@ -71,6 +71,7 @@ func (s *Scheduler) Tick(ctx context.Context) []error {
 		return nil
 	}
 	s.running = true
+	s.purgeFiredLocked(now)
 	s.mu.Unlock()
 	defer func() {
 		s.mu.Lock()
@@ -102,21 +103,25 @@ func (s *Scheduler) Tick(ctx context.Context) []error {
 }
 
 // claim reports whether the key already fired, marking it when it had not.
-// Expired entries are dropped on the way through, so the map stays bounded
-// without a second timer.
 func (s *Scheduler) claim(key string, now time.Time) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for k, at := range s.fired {
-		if now.Sub(at) > firedTTL {
-			delete(s.fired, k)
-		}
-	}
 	if at, ok := s.fired[key]; ok && now.Sub(at) <= firedTTL {
 		return true
 	}
 	s.fired[key] = now
 	return false
+}
+
+// purgeFiredLocked drops expired entries. It runs once at the top of Tick
+// rather than inside claim: claim is called per connection, so purging there
+// made one tick's bookkeeping quadratic in the number of connections.
+func (s *Scheduler) purgeFiredLocked(now time.Time) {
+	for k, at := range s.fired {
+		if now.Sub(at) > firedTTL {
+			delete(s.fired, k)
+		}
+	}
 }
 
 // Run ticks until ctx is cancelled. The first tick runs immediately so a

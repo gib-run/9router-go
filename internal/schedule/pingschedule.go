@@ -327,7 +327,16 @@ func Normalize(raw *Input) *Schedule {
 
 // DefaultTimezoneOr returns name when it is a usable zone and the process zone
 // otherwise.
+//
+// "Local" is refused here for the same reason NormalizeTimezone refuses it: a
+// schedule payload is stored in the settings blob and read back by another
+// runtime, where the name "Local" means nothing. time.LoadLocation
+// special-cases it, so without this guard the zone the env-var path rejects
+// would still arrive through a settings payload.
 func DefaultTimezoneOr(name string) string {
+	if strings.EqualFold(name, "Local") {
+		return LocalTimezone()
+	}
 	if _, ok := LoadLocation(name); ok {
 		return name
 	}

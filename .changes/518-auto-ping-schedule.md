@@ -50,4 +50,37 @@ next real request starts it, which is what happened before this feature
 existed. `TestSchedulerReportsPingErrors` pins both halves — one error
 reported, one call made, and a second tick inside the same slot does nothing.
 
+**A ping pinned to a disabled connection is refused, not redirected.** The pin
+was dropped when the connection was switched off, and the strategy then answered
+with a different, active account: the ping spent that account's window and left
+the disabled one exactly as closed as it was. A probe is pinned to one account
+on purpose — that is the account whose window it exists to start — so it now
+refuses instead of falling through. Upstream never pings an inactive account
+either (`quotaAutoPing.js` filters `isActive: true`).
+
+**The Codex ping asks for its reasoning to be off.** Upstream sends
+`instructions: "Reply with OK."` and `reasoning: {effort:"none"}` so the ping is
+a near-free warm-up. Without the effort field the model runs its default
+reasoning, and the one-token cap is stripped before the request leaves
+(`codex_token_params.go`), so the ping was both expensive and unbounded — the
+opposite of what a scheduled warm-up is for. `stream: true` is now sent
+explicitly too: Codex starts the 5h window only once a streaming response
+completes, and relying on the transform to force it was an accident waiting to
+break.
+
+**The schedule editor is not in this change; schedules are API-only for now.**
+`PUT /api/settings` accepts them and the scheduler picks them up on the next
+tick, but nothing in `web/` renders an editor. Upstream has one
+(`AutoPingScheduleModal.js`); porting it is a separate change. `SlotLabels()`
+exists for that editor and currently has no caller.
+
+**The slot-expiry sweep runs once per tick, not once per claim.** `claim` is
+called per configured connection, so purging the fired map there was quadratic
+in connection count. The sweep moved to the top of `Tick`.
+
+**A timezone of `Local` is refused in the settings payload too.** The env var
+was already refused, but `time.LoadLocation` special-cases the name, so a
+schedule payload carrying it was stored verbatim — the same defect, through the
+other door. `DefaultTimezoneOr` now refuses it as well.
+
 An unknown quota is reported as unknown rather than as exhausted.
