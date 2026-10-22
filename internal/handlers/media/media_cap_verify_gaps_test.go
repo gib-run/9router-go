@@ -179,6 +179,64 @@ func TestMediaInputCap_RefusesTotalBytesOverCeiling(t *testing.T) {
 // TestMediaUsage_UpstreamCannotOverwriteUsageHeaders is red before the fix:
 // every upstream header was copied into the response map unconditionally, so a
 // provider emitting X-Media-Items replaced the number the gateway measured.
+// TestMediaInputCap_BoundaryIsExact pins that each cap is a cap and not a
+// ceiling-with-slack: a request exactly at the limit passes, and one byte over
+// it is refused. A comparison that refused at the limit would drop a legal
+// request, and one that used `>=` on the wrong side would let an oversized
+// request through; both read as "the cap works" from the outside.
+func TestMediaInputCap_BoundaryIsExact(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		items  int
+		itemB  int64
+		totalB int64
+		files  []int
+		want   int
+		why    string
+	}{
+		{"items exactly at cap", 4, 1 << 20, 1 << 20, []int{1, 1, 1, 1}, http.StatusOK,
+			"four items with a cap of four is legal"},
+		{"items one over cap", 4, 1 << 20, 1 << 20, []int{1, 1, 1, 1, 1}, http.StatusRequestEntityTooLarge,
+			"five items with a cap of four is one over"},
+		{"item exactly at cap", 16, 1024, 1 << 20, []int{1024}, http.StatusOK,
+			"an item exactly the cap size is legal"},
+		{"item one byte over cap", 16, 1024, 1 << 20, []int{1025}, http.StatusRequestEntityTooLarge,
+			"an item one byte over the cap is refused"},
+		{"total exactly at cap", 16, 1 << 20, 2048, []int{1024, 1024}, http.StatusOK,
+			"a sum exactly the cap is legal"},
+		{"total one byte over cap", 16, 1 << 20, 2048, []int{1024, 1025}, http.StatusRequestEntityTooLarge,
+			"a sum one byte over the cap is refused"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			prevItems, prevItem, prevTotal := MediaMaxItems, MediaMaxItemBytes, MediaMaxTotalBytes
+			MediaMaxItems, MediaMaxItemBytes, MediaMaxTotalBytes = tc.items, tc.itemB, tc.totalB
+			t.Cleanup(func() {
+				MediaMaxItems, MediaMaxItemBytes, MediaMaxTotalBytes = prevItems, prevItem, prevTotal
+			})
+
+			var hits int32
+			upstream := newCountingUpstream(t, &hits)
+			defer upstream.Close()
+
+			files := make([][]byte, len(tc.files))
+			for i, n := range tc.files {
+				files[i] = bytes.Repeat([]byte("a"), n)
+			}
+			body, ct := sttMultipart(t, "whisper-1", files)
+			rec := runSTT(t, upstream.URL, body, ct)
+
+			if rec.Code != tc.want {
+				t.Fatalf("%s: got %d, want %d: %s", tc.why, rec.Code, tc.want, rec.Body.String())
+			}
+			if tc.want != http.StatusOK {
+				if got := atomic.LoadInt32(&hits); got != 0 {
+					t.Errorf("%s: refused request still reached upstream %d time(s)", tc.why, got)
+				}
+			}
+		})
+	}
+}
+
 func TestMediaUsage_UpstreamCannotOverwriteUsageHeaders(t *testing.T) {
 	var hits int32
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
