@@ -125,6 +125,21 @@ func (h *ChatHandler) handleStreamResponse(ctx context.Context, w http.ResponseW
 		return executor.StreamChatToResponses(ctx, w, upstream, startTime, &metrics.TTFT, &metrics.ResponseBuf)
 	}
 
+	// Peek before the header write. A 200 whose stream opens with an error
+	// frame, an immediate EOF, keep-alives only, or a bare [DONE] carries no
+	// turn — but once `200 text/event-stream` is committed the failure can only
+	// be relayed: combo fallback is over and the account is billed and cooled
+	// down for a reply it never gave. Refusing here keeps the decision
+	// reversible, so the 502 travels back to the account/model loop.
+	//
+	// The returned reader replays the peeked bytes exactly, so a healthy stream
+	// reaches the client byte for byte.
+	_, replayed, peekErr := internalproxy.PeekFirstStreamEvent(ctx, upstream, 0)
+	if peekErr != nil {
+		return peekErr
+	}
+	upstream = replayed
+
 	hw := internalproxy.NewHeartbeatWriter(ctx, w, 0)
 	defer hw.Close()
 	flusher := internalproxy.WriteSSEHeaders(hw)
@@ -285,19 +300,13 @@ func sseToClaudeJSON(raw []byte) ([]byte, bool) {
 					if n, ok := fn["name"].(string); ok && n != "" {
 						if existing, _ := fEntry["name"].(string); existing == "" {
 							fEntry["name"] = n
-						} else if existing != n && !strings.Contains(existing, n) {
+						} else {
 							fEntry["name"] = existing + n
 						}
 					}
 					if a, ok := fn["arguments"].(string); ok && a != "" {
 						existing, _ := fEntry["arguments"].(string)
-						if existing == "" {
-							fEntry["arguments"] = a
-						} else if existing != a && !strings.Contains(existing, a) {
-							if len(a) > 0 && !strings.HasSuffix(existing, a) {
-								fEntry["arguments"] = existing + a
-							}
-						}
+						fEntry["arguments"] = existing + a
 					}
 				}
 			}
