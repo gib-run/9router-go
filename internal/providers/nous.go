@@ -280,7 +280,16 @@ func ShouldApplyNousAttribution(rawURL string) bool {
 //     if the model can disable thinking.
 //   - Removes top-level reasoning_effort and other thinking control fields.
 //   - If no thinking was requested, leaves the body untouched.
-func ApplyNousThinking(body []byte) []byte {
+//   - Only applies when provider is "nous" (or its alias "ns") to prevent
+//     cross-provider mutation (AGENTS.md §3.A).
+func ApplyNousThinking(body []byte, provider string) []byte {
+	// Strictly scope to the nous provider (and its alias "ns") to prevent
+	// cross-provider leakage where a non-Nous provider serving a model with
+	// a matching ID would incorrectly get the Nous dialect applied.
+	if provider != "nous" && provider != "ns" {
+		return body
+	}
+
 	if !bytes.Contains(body, []byte("reasoning")) &&
 		!bytes.Contains(body, []byte("thinking")) &&
 		!bytes.Contains(body, []byte("output_config")) &&
@@ -296,7 +305,7 @@ func ApplyNousThinking(body []byte) []byte {
 	rawModel, _ := raw["model"].(string)
 	cleanModel, suffix := splitThinkingSuffix(rawModel)
 	modelForCaps := strings.TrimPrefix(cleanModel, "nous/")
-	caps := GetCapabilitiesForModel("nous", modelForCaps)
+	caps := GetCapabilitiesForModel(provider, modelForCaps)
 	if caps.ThinkingFormat != "nous" {
 		return body
 	}

@@ -222,7 +222,7 @@ func TestShouldApplyNousAttribution(t *testing.T) {
 func TestApplyNousThinking(t *testing.T) {
 	t.Run("reasoning level set to high", func(t *testing.T) {
 		body := []byte(`{"model":"meituan/longcat-2.0:free","messages":[{"role":"user","content":"hi"}],"reasoning_effort":"high"}`)
-		out := ApplyNousThinking(body)
+		out := ApplyNousThinking(body, "nous")
 
 		var req map[string]any
 		if err := json.Unmarshal(out, &req); err != nil {
@@ -245,7 +245,7 @@ func TestApplyNousThinking(t *testing.T) {
 
 	t.Run("auto mode maps to medium effort", func(t *testing.T) {
 		body := []byte(`{"model":"stepfun/step-5-preview:free","messages":[{"role":"user","content":"hi"}],"reasoning_effort":"auto"}`)
-		out := ApplyNousThinking(body)
+		out := ApplyNousThinking(body, "nous")
 
 		var req map[string]any
 		if err := json.Unmarshal(out, &req); err != nil {
@@ -268,7 +268,7 @@ func TestApplyNousThinking(t *testing.T) {
 
 	t.Run("thinking disabled omits reasoning", func(t *testing.T) {
 		body := []byte(`{"model":"meituan/longcat-2.0:free","messages":[{"role":"user","content":"hi"}],"reasoning_effort":"none"}`)
-		out := ApplyNousThinking(body)
+		out := ApplyNousThinking(body, "nous")
 
 		var req map[string]any
 		if err := json.Unmarshal(out, &req); err != nil {
@@ -284,7 +284,7 @@ func TestApplyNousThinking(t *testing.T) {
 
 	t.Run("non-nous model untouched", func(t *testing.T) {
 		body := []byte(`{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}],"reasoning_effort":"high"}`)
-		out := ApplyNousThinking(body)
+		out := ApplyNousThinking(body, "nous")
 
 		var req map[string]any
 		if err := json.Unmarshal(out, &req); err != nil {
@@ -300,9 +300,25 @@ func TestApplyNousThinking(t *testing.T) {
 
 	t.Run("no thinking intent leaves request untouched", func(t *testing.T) {
 		body := []byte(`{"model":"meituan/longcat-2.0:free","messages":[{"role":"user","content":"hi"}]}`)
-		out := ApplyNousThinking(body)
+		out := ApplyNousThinking(body, "nous")
 		if string(out) != string(body) {
 			t.Errorf("expected body untouched when no thinking intent: got %s, want %s", out, body)
+		}
+	})
+
+	t.Run("non-nous provider does not apply thinking dialect", func(t *testing.T) {
+		body := []byte(`{"model":"meituan/longcat-2.0:free","messages":[{"role":"user","content":"hi"}],"reasoning_effort":"high"}`)
+		out := ApplyNousThinking(body, "openai-compatible-chat-x")
+
+		var req map[string]any
+		if err := json.Unmarshal(out, &req); err != nil {
+			t.Fatalf("failed to unmarshal output: %v", err)
+		}
+		if effort, _ := req["reasoning_effort"].(string); effort != "high" {
+			t.Errorf("expected reasoning_effort unchanged for non-nous provider, got %v", req["reasoning_effort"])
+		}
+		if _, exists := req["reasoning"]; exists {
+			t.Errorf("expected reasoning not added for non-nous provider, but got %v", req["reasoning"])
 		}
 	})
 }
