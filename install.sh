@@ -8,7 +8,7 @@
 # /usr/local/bin, falls back to ~/.local/bin).
 set -euo pipefail
 
-REPO="${REPO:-luqman-v1/9router-go}"
+REPO="${REPO:-gib-run/9router-go}"
 VERSION="${VERSION:-latest}"
 BINDIR="${BINDIR:-/usr/local/bin}"
 
