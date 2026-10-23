@@ -280,23 +280,27 @@ func TestNewProvidersRegistry_v060(t *testing.T) {
 	}
 
 	// Verify models are registered for each provider
-	for _, provider := range []string{"daoxe", "nan", "openadapter"} {
+	expectedModel := map[string]string{
+		"daoxe":       "claude-sonnet-4-6",
+		"nan":         "deepseek-v4-flash",
+		"openadapter": "glm-4.7",
+	}
+	for provider, wantModel := range expectedModel {
 		models := GetProviderModels(provider)
 		if len(models) == 0 {
 			t.Errorf("GetProviderModels(%q) returned empty list", provider)
 		}
-		hasGPT4o := false
+		hasModel := false
 		for _, m := range models {
-			if m == "gpt-4o" {
-				hasGPT4o = true
+			if m == wantModel {
+				hasModel = true
 				break
 			}
 		}
-		if !hasGPT4o {
-			t.Errorf("GetProviderModels(%q) missing gpt-4o, got %v", provider, models)
+		if !hasModel {
+			t.Errorf("GetProviderModels(%q) missing %s, got %v", provider, wantModel, models)
 		}
 	}
-
 	// Verify aliases reach the same catalog
 	for _, alias := range []string{"dx", "nan", "oad"} {
 		models := GetProviderModels(alias)

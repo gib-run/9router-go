@@ -98,7 +98,6 @@ export const PROVIDER_ID_TO_ALIAS: Record<string, string> = {
   "morph": "morph",
   "nanobanana": "nb",
   "nebius": "nebius",
-  "nous": "nous",
   "nvidia": "nvidia",
   "ollama": "ollama",
   "ollama-local": "ollama-local",
@@ -1799,32 +1798,6 @@ export const BUILTIN_MODELS_BY_PROVIDER: Record<string, ProviderModel[]> = {
       "name": "DeepSeek Search"
     }
   ],
-  "dx": [
-    {
-      "id": "gpt-4o",
-      "name": "GPT-4o"
-    },
-    {
-      "id": "gpt-4o-mini",
-      "name": "GPT-4o Mini"
-    },
-    {
-      "id": "gpt-3.5-turbo",
-      "name": "GPT-3.5 Turbo"
-    },
-    {
-      "id": "claude-3.5-sonnet",
-      "name": "Claude 3.5 Sonnet"
-    },
-    {
-      "id": "gemini-1.5-pro",
-      "name": "Gemini 1.5 Pro"
-    },
-    {
-      "id": "llama-3.1-70b",
-      "name": "Llama 3.1 70B"
-    }
-  ],
   "devin-cli": [
     {
       "id": "swe-1.6-fast",
@@ -3486,31 +3459,49 @@ export const BUILTIN_MODELS_BY_PROVIDER: Record<string, ProviderModel[]> = {
       "kind": "image"
     }
   ],
+  "daoxe": [
+    { "id": "claude-sonnet-4-6", "name": "Claude Sonnet 4.6" },
+    { "id": "claude-opus-4-8", "name": "Claude Opus 4.8" },
+    { "id": "claude-haiku-4-5-20251001", "name": "Claude Haiku 4.5" },
+    { "id": "gpt-5.5", "name": "GPT-5.5" },
+    { "id": "gpt-5.4", "name": "GPT-5.4" },
+    { "id": "gemini-3.1-pro-preview", "name": "Gemini 3.1 Pro Preview" },
+    { "id": "grok-4.5", "name": "Grok 4.5" },
+    { "id": "grok-4.3", "name": "Grok 4.3" },
+    { "id": "kimi-k2.5", "name": "Kimi K2.5" }
+  ],
+  "dx": [
+    { "id": "claude-sonnet-4-6", "name": "Claude Sonnet 4.6" },
+    { "id": "claude-opus-4-8", "name": "Claude Opus 4.8" },
+    { "id": "claude-haiku-4-5-20251001", "name": "Claude Haiku 4.5" },
+    { "id": "gpt-5.5", "name": "GPT-5.5" },
+    { "id": "gpt-5.4", "name": "GPT-5.4" },
+    { "id": "gemini-3.1-pro-preview", "name": "Gemini 3.1 Pro Preview" },
+    { "id": "grok-4.5", "name": "Grok 4.5" },
+    { "id": "grok-4.3", "name": "Grok 4.3" },
+    { "id": "kimi-k2.5", "name": "Kimi K2.5" }
+  ],
   "nan": [
-    {
-      "id": "gpt-4o",
-      "name": "GPT-4o"
-    },
-    {
-      "id": "gpt-4o-mini",
-      "name": "GPT-4o Mini"
-    },
-    {
-      "id": "gpt-3.5-turbo",
-      "name": "GPT-3.5 Turbo"
-    },
-    {
-      "id": "claude-3.5-sonnet",
-      "name": "Claude 3.5 Sonnet"
-    },
-    {
-      "id": "gemini-1.5-pro",
-      "name": "Gemini 1.5 Pro"
-    },
-    {
-      "id": "llama-3.1-70b",
-      "name": "Llama 3.1 70B"
-    }
+    { "id": "deepseek-v4-flash", "name": "DeepSeek V4 Flash" },
+    { "id": "mimo-v2.5", "name": "MiMo V2.5" },
+    { "id": "mimo-v2.6-flash", "name": "MiMo V2.6 Flash" },
+    { "id": "qwen3.8-flash", "name": "Qwen3.8 Flash" },
+    { "id": "qwen3.6", "name": "Qwen3.6" },
+    { "id": "glm5.3", "name": "GLM 5.3" },
+    { "id": "glm5.3-flash", "name": "GLM 5.3 Flash" },
+    { "id": "gemma4", "name": "Gemma 4" }
+  ],
+  "openadapter": [
+    { "id": "glm-4.7", "name": "GLM 4.7" },
+    { "id": "deepseek/deepseek-chat", "name": "DeepSeek Chat" },
+    { "id": "qwen/qwen-2.5-72b-instruct", "name": "Qwen 2.5 72B Instruct" },
+    { "id": "meta-llama/llama-3.3-70b-instruct", "name": "Llama 3.3 70B Instruct" }
+  ],
+  "oad": [
+    { "id": "glm-4.7", "name": "GLM 4.7" },
+    { "id": "deepseek/deepseek-chat", "name": "DeepSeek Chat" },
+    { "id": "qwen/qwen-2.5-72b-instruct", "name": "Qwen 2.5 72B Instruct" },
+    { "id": "meta-llama/llama-3.3-70b-instruct", "name": "Llama 3.3 70B Instruct" }
   ],
   "nebius": [
     {
@@ -3521,48 +3512,6 @@ export const BUILTIN_MODELS_BY_PROVIDER: Record<string, ProviderModel[]> = {
       "id": "Qwen/Qwen3-Embedding-8B",
       "name": "Qwen3 Embedding 8B",
       "kind": "embedding"
-    }
-  ],
-  "nous": [
-    {
-      "id": "meituan/longcat-2.0:free",
-      "name": "Meituan: LongCat 2.0",
-      "contextLength": 1048756
-    },
-    {
-      "id": "meituan/longcat-2.5-preview:free",
-      "name": "Meituan: LongCat 2.5 Preview",
-      "contextLength": 1048576
-    },
-    {
-      "id": "stepfun/step-5-preview:free",
-      "name": "StepFun: Step 5 Preview",
-      "contextLength": 1000000
-    },
-    {
-      "id": "upstage/solar-mini4:free",
-      "name": "Upstage: Solar Mini 4",
-      "contextLength": 524288
-    },
-    {
-      "id": "stepfun/step-3.7-flash:free",
-      "name": "StepFun: Step 3.7 Flash",
-      "contextLength": 262144
-    },
-    {
-      "id": "poolside/laguna-s-2.1:free",
-      "name": "Poolside: Laguna S 2.1",
-      "contextLength": 262144
-    },
-    {
-      "id": "poolside/laguna-xs-2.1:free",
-      "name": "Poolside: Laguna XS 2.1",
-      "contextLength": 262144
-    },
-    {
-      "id": "stealth/missingno",
-      "name": "MissingNo",
-      "contextLength": 262144
     }
   ],
   "nvidia": [
@@ -3616,32 +3565,6 @@ export const BUILTIN_MODELS_BY_PROVIDER: Record<string, ProviderModel[]> = {
       "id": "tacotron2",
       "name": "Tacotron2",
       "kind": "tts"
-    }
-  ],
-  "oad": [
-    {
-      "id": "gpt-4o",
-      "name": "GPT-4o"
-    },
-    {
-      "id": "gpt-4o-mini",
-      "name": "GPT-4o Mini"
-    },
-    {
-      "id": "gpt-3.5-turbo",
-      "name": "GPT-3.5 Turbo"
-    },
-    {
-      "id": "claude-3.5-sonnet",
-      "name": "Claude 3.5 Sonnet"
-    },
-    {
-      "id": "gemini-1.5-pro",
-      "name": "Gemini 1.5 Pro"
-    },
-    {
-      "id": "llama-3.1-70b",
-      "name": "Llama 3.1 70B"
     }
   ],
   "ollama": [

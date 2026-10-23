@@ -614,8 +614,8 @@ export const PROVIDER_CATALOG: ProviderCatalogItem[] = [
     "alias": "dx",
     "color": "#10B981",
     "icon": "auto_awesome",
-    "website": "https://dao-xe.com",
-    "notice": {"apiKeyUrl":"https://dao-xe.com/api-keys"},
+    "website": "https://daoxe.com",
+    "notice": {"apiKeyUrl":"https://daoxe.com/token"},
     "authType": "apikey",
     "noAuth": false,
     "serviceKinds": [
@@ -710,7 +710,7 @@ export const PROVIDER_CATALOG: ProviderCatalogItem[] = [
     "color": "#06B6D4",
     "icon": "construction",
     "website": "https://nan.builders",
-    "notice": {"apiKeyUrl":"https://nan.builders/api-keys"},
+    "notice": {"apiKeyUrl":"https://cloud.nan.builders"},
     "authType": "apikey",
     "noAuth": false,
     "serviceKinds": [
@@ -724,8 +724,8 @@ export const PROVIDER_CATALOG: ProviderCatalogItem[] = [
     "alias": "oad",
     "color": "#8B5CF6",
     "icon": "hub",
-    "website": "https://openadapter.in",
-    "notice": {"apiKeyUrl":"https://openadapter.in/api-keys"},
+    "website": "https://openadapter.dev",
+    "notice": {"apiKeyUrl":"https://dashboard.openadapter.in"},
     "authType": "apikey",
     "noAuth": false,
     "serviceKinds": [
