@@ -3,6 +3,7 @@ package media
 import (
 	"bytes"
 	"encoding/base64"
+	"errors"
 	json "encoding/json/v2"
 	"fmt"
 	"io"
@@ -52,7 +53,7 @@ func (h *MediaHandler) handleAntigravitySTT(w http.ResponseWriter, r *http.Reque
 	var responseFormat string
 
 	contentType := r.Header.Get("Content-Type")
-	if strings.Contains(contentType, "multipart/form-data") {
+	if isMultipartRequest(r) {
 		_, params, err := mime.ParseMediaType(contentType)
 		if err != nil || params["boundary"] == "" {
 			return fmt.Errorf("invalid multipart form data")
@@ -61,7 +62,14 @@ func (h *MediaHandler) handleAntigravitySTT(w http.ResponseWriter, r *http.Reque
 		for {
 			p, err := mr.NextPart()
 			if err != nil {
-				break
+				// A body that stops parsing mid-way is refused rather than
+				// forwarded with whatever was read before the failure. Breaking
+				// out here meant a malformed part header after the audio still
+				// sent the audio upstream, unbilled by any cap.
+				if errors.Is(err, io.EOF) {
+					break
+				}
+				return fmt.Errorf("malformed multipart body: %w", err)
 			}
 			switch p.FormName() {
 			case "file":
