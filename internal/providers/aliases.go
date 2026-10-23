@@ -85,6 +85,9 @@ var ProviderAliasMap = map[string]string{
 	// which would silently hijack a model id two other providers already own.
 	// The canonical `v1m/` prefix still reaches every v1m model.
 	"ne":             "nebius",
+	"nous-portal":    "nous",
+	"nous-research":  "nous",
+	"ns":             "nous",
 	"nv":             "nvidia",
 	"oa":             "openai",
 	"oc":             "opencode",

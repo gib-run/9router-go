@@ -281,6 +281,7 @@ export const PROVIDER_CATALOG: ProviderCatalogItem[] = [
   },
   {
     "id": "gitlab",
+    "hidden": true,
     "name": "GitLab Duo",
     "category": "oauth",
     "alias": "gitlab",
@@ -309,6 +310,7 @@ export const PROVIDER_CATALOG: ProviderCatalogItem[] = [
   },
   {
     "id": "iflow",
+    "hidden": true,
     "name": "iFlow AI",
     "category": "oauth",
     "alias": "if",
@@ -512,6 +514,7 @@ export const PROVIDER_CATALOG: ProviderCatalogItem[] = [
   },
   {
     "id": "mimo-free",
+    "hidden": true,
     "name": "MiMo Code Free",
     "category": "free",
     "alias": "mmf",
@@ -757,6 +760,33 @@ export const PROVIDER_CATALOG: ProviderCatalogItem[] = [
     "serviceKinds": [
       "tts"
     ]
+  },
+  {
+    "id": "nous",
+    "name": "Nous Research",
+    "category": "freeTier",
+    "alias": "nous",
+    "color": "#7C3AED",
+    "icon": "psychology",
+    "website": "https://nousresearch.com",
+    "notice": {
+      "text": "Connect with OAuth Device Code (free account, no payment required) or a Nous Portal API key.",
+      "signupUrl": "https://portal.nousresearch.com",
+      "apiKeyUrl": "https://portal.nousresearch.com/api-keys"
+    },
+    "authType": "oauth",
+    "authModes": ["oauth", "apikey"],
+    "passthroughModels": true,
+    "noAuth": false,
+    "priority": 65,
+    "serviceKinds": [
+      "llm",
+      "imageToText"
+    ],
+    "modelsFetcher": {
+      "url": "https://inference-api.nousresearch.com/v1/models",
+      "type": "nous-free"
+    }
   },
   {
     "id": "nvidia",
@@ -1070,6 +1100,7 @@ export const PROVIDER_CATALOG: ProviderCatalogItem[] = [
   },
   {
     "id": "bluesminds",
+    "hidden": true,
     "name": "BluesMinds",
     "category": "apikey",
     "alias": "bm",
@@ -1846,6 +1877,7 @@ export const PROVIDER_CATALOG: ProviderCatalogItem[] = [
   },
   {
     "id": "sambanova",
+    "hidden": true,
     "name": "SambaNova",
     "category": "apikey",
     "alias": "samba",

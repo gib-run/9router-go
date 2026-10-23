@@ -77,6 +77,21 @@ func TestAggregatorProviders(t *testing.T) {
 			id: "tinyfish", baseURL: "https://api.tinyfish.ai",
 			authHeader: "x-api-key", authScheme: "raw",
 		},
+		{
+			id: "nous", baseURL: "https://inference-api.nousresearch.com/v1/chat/completions",
+			models: []string{
+				"meituan/longcat-2.0:free",
+				"meituan/longcat-2.5-preview:free",
+				"stepfun/step-5-preview:free",
+				"upstage/solar-mini4:free",
+				"stepfun/step-3.7-flash:free",
+				"poolside/laguna-s-2.1:free",
+				"poolside/laguna-xs-2.1:free",
+				"stealth/missingno",
+			},
+			aliases:    []string{"nous-portal", "nous-research", "ns"},
+			modelsList: "https://inference-api.nousresearch.com/v1/models", wantFetcher: true,
+		},
 	}
 
 	for _, tt := range tests {

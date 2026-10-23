@@ -70,7 +70,7 @@
   import EditConnectionModal, { type ConnectionUpdate } from './EditConnectionModal.svelte'
   import AddConnectionModal from './AddConnectionModal.svelte'
   import AddCustomModelModal from './AddCustomModelModal.svelte'
-  import { hasAnyNodeLimitPatch, nodeLimitsDraftOf, nodeLimitsSummary, nodeLimitsUsageSummary } from '../../lib/node-limits'
+  import { nodeLimitsDraftOf, nodeLimitsSummary, nodeLimitsUsageSummary } from '../../lib/node-limits'
   import type { ProviderNodeLimitsPatch } from '../../api/client'
   import Badge from '../../lib/ui/Badge.svelte'
   import ProviderHeaderOverridesModal from './ProviderHeaderOverridesModal.svelte'
@@ -148,7 +148,8 @@
     providerId === 'qoder' || providerId === 'kilocode' || providerId === 'grok-cli' ||
     providerId === 'github' || providerId === 'kiro' || providerId === 'kimi' ||
     providerId === 'kimi-coding' || providerId === 'codebuddy-cn' || providerId === 'codebuddy-intl' ||
-    providerId === 'minimax-code' || providerId === 'minimax-code-global' || providerId === 'muse'
+    providerId === 'minimax-code' || providerId === 'minimax-code-global' || providerId === 'muse' ||
+    providerId === 'nous'
   )
   // Upstream parity: only the explicit noAuth flag hides the Connections card
   // ([id]/page.js isFreeNoAuth = !!FREE_PROVIDERS[id]?.noAuth). Category "free"
@@ -264,6 +265,7 @@
   let compatibleTestErrors = $state<Record<string, string | null>>({})
   let compatibleTestLatency = $state<Record<string, number>>({})
   let compatibleTestAllRunning = $state(false)
+  let isRemovingCompatibleModels = $state(false)
   let compatibleRows = $derived.by(() => {
     const rows: Array<{ id: string; source: 'custom' | 'legacyAlias'; alias?: string }> = []
     const seen = new Set<string>()
@@ -2277,17 +2279,13 @@
       // live on the node's own row, so an edited suffix moves them, and a write aimed
       // at the old id would leave the node looking unlimited.
       const savedId = res?.node?.id || previousId
-      if (hasAnyNodeLimitPatch(data.limits)) {
-        try {
-          const saved = await api.setProviderNodeLimits(savedId, data.limits)
-          selectedNode = { ...selectedNode, id: savedId, limits: saved.limits }
-        } catch (err) {
-          alert(
-            `Provider node saved, but its capacity limits did not: ${err instanceof Error ? err.message : String(err)}`,
-          )
-        }
-      } else {
-        selectedNode = { ...selectedNode, id: savedId }
+      try {
+        const saved = await api.setProviderNodeLimits(savedId, data.limits)
+        selectedNode = { ...selectedNode, id: savedId, limits: saved.limits }
+      } catch (err) {
+        alert(
+          `Provider node saved, but its capacity limits did not: ${err instanceof Error ? err.message : String(err)}`,
+        )
       }
       showEditNodeModal = false
       if (savedId !== previousId) {
@@ -2410,6 +2408,38 @@
       compatibleTestErrors[modelId] = err instanceof Error ? err.message : 'Model test failed'
     } finally {
       compatibleTesting[modelId] = false
+    }
+  }
+
+  // Bulk removal for a node whose list came from an import. The single-row
+  // delete beside each model is the same operation repeated, so this only adds
+  // the one-request path; the rows it removes are exactly the ones the import
+  // wrote (custom models + the aliases pointing at them), never the catalog.
+  async function handleRemoveAllCompatibleModels() {
+    if (isRemovingCompatibleModels || compatibleTestAllRunning) return
+    const total = compatibleRows.length
+    if (total === 0) return
+    if (
+      !confirm(
+        `Remove all ${total} model(s) from ${displayAlias()}? Imported models and any aliases pointing at them are deleted. Models that ship with the build stay. This cannot be undone.`
+      )
+    )
+      return
+    isRemovingCompatibleModels = true
+    try {
+      const res = await api.deleteProviderModels(storageAlias)
+      compatibleTestResults = {}
+      compatibleTestErrors = {}
+      compatibleTestLatency = {}
+      await refreshCompatibleModels()
+      notifyCustomModelsChanged()
+      if (!res || res.count === 0) {
+        alert('Nothing was removed: this node has no imported models of its own.')
+      }
+    } catch (err) {
+      alert(`Remove failed: ${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      isRemovingCompatibleModels = false
     }
   }
 
@@ -3752,8 +3782,19 @@
           <span class="material-symbols-outlined text-[18px]">{compatibleTestAllRunning ? 'progress_activity' : 'science'}</span>
           {compatibleTestAllRunning ? `Testing ${compatibleTestSummary.total}/${compatibleRows.length}...` : 'Test all models'}
         </button>
+        <button
+          type="button"
+          onclick={handleRemoveAllCompatibleModels}
+          disabled={compatibleRows.length === 0 || isRemovingCompatibleModels || compatibleTestAllRunning}
+          title="Delete every model imported into this node, in one request"
+          class="inline-flex items-center justify-center gap-2 font-semibold transition-all duration-150 ease-out cursor-pointer active:scale-[0.97] bg-surface-2 hover:bg-red-500/10 text-text-main hover:text-red-500 border border-border h-8 px-4 text-xs rounded-[8px] disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <span class="material-symbols-outlined text-[18px]">{isRemovingCompatibleModels ? 'progress_activity' : 'delete_sweep'}</span>
+          {isRemovingCompatibleModels ? 'Removing...' : 'Remove all models'}
+        </button>
       </div>
       <p class="text-xs text-text-muted">Test all sends a real completion per model and consumes account quota.</p>
+      <p class="text-xs text-text-muted">Remove all deletes this node's imported models and the aliases pointing at them; models that ship with the build stay.</p>
       {#if !canImportCompatible}
         <p class="text-xs text-text-muted">Add a connection to enable importing models.</p>
       {/if}
