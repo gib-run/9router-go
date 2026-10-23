@@ -18,6 +18,7 @@ export const PROVIDER_ID_TO_ALIAS: Record<string, string> = {
   "bai": "bai",
   "atria": "atria",
   "dahl": "dahl",
+  "daoxe": "dx",
   "sumopod": "sp",
   "tokenharbor": "tokenharbor",
   "alicode": "alicode",
@@ -92,6 +93,7 @@ export const PROVIDER_ID_TO_ALIAS: Record<string, string> = {
   "mistral": "mistral",
   "mmf": "mmf",
   "muse": "muse",
+  "nan": "nan",
   "tinyfish": "tinyfish",
   "morph": "morph",
   "nanobanana": "nb",
@@ -103,6 +105,7 @@ export const PROVIDER_ID_TO_ALIAS: Record<string, string> = {
   "opencode": "oc",
   "opencode-go": "ocg",
   "opencode-zen": "ocz",
+  "openadapter": "oad",
   "openrouter": "openrouter",
   "perplexity": "pplx",
   "perplexity-agent": "pa",
@@ -1795,6 +1798,32 @@ export const BUILTIN_MODELS_BY_PROVIDER: Record<string, ProviderModel[]> = {
       "name": "DeepSeek Search"
     }
   ],
+  "dx": [
+    {
+      "id": "gpt-4o",
+      "name": "GPT-4o"
+    },
+    {
+      "id": "gpt-4o-mini",
+      "name": "GPT-4o Mini"
+    },
+    {
+      "id": "gpt-3.5-turbo",
+      "name": "GPT-3.5 Turbo"
+    },
+    {
+      "id": "claude-3.5-sonnet",
+      "name": "Claude 3.5 Sonnet"
+    },
+    {
+      "id": "gemini-1.5-pro",
+      "name": "Gemini 1.5 Pro"
+    },
+    {
+      "id": "llama-3.1-70b",
+      "name": "Llama 3.1 70B"
+    }
+  ],
   "devin-cli": [
     {
       "id": "swe-1.6-fast",
@@ -3456,6 +3485,32 @@ export const BUILTIN_MODELS_BY_PROVIDER: Record<string, ProviderModel[]> = {
       "kind": "image"
     }
   ],
+  "nan": [
+    {
+      "id": "gpt-4o",
+      "name": "GPT-4o"
+    },
+    {
+      "id": "gpt-4o-mini",
+      "name": "GPT-4o Mini"
+    },
+    {
+      "id": "gpt-3.5-turbo",
+      "name": "GPT-3.5 Turbo"
+    },
+    {
+      "id": "claude-3.5-sonnet",
+      "name": "Claude 3.5 Sonnet"
+    },
+    {
+      "id": "gemini-1.5-pro",
+      "name": "Gemini 1.5 Pro"
+    },
+    {
+      "id": "llama-3.1-70b",
+      "name": "Llama 3.1 70B"
+    }
+  ],
   "nebius": [
     {
       "id": "meta-llama/Llama-3.3-70B-Instruct",
@@ -3518,6 +3573,32 @@ export const BUILTIN_MODELS_BY_PROVIDER: Record<string, ProviderModel[]> = {
       "id": "tacotron2",
       "name": "Tacotron2",
       "kind": "tts"
+    }
+  ],
+  "oad": [
+    {
+      "id": "gpt-4o",
+      "name": "GPT-4o"
+    },
+    {
+      "id": "gpt-4o-mini",
+      "name": "GPT-4o Mini"
+    },
+    {
+      "id": "gpt-3.5-turbo",
+      "name": "GPT-3.5 Turbo"
+    },
+    {
+      "id": "claude-3.5-sonnet",
+      "name": "Claude 3.5 Sonnet"
+    },
+    {
+      "id": "gemini-1.5-pro",
+      "name": "Gemini 1.5 Pro"
+    },
+    {
+      "id": "llama-3.1-70b",
+      "name": "Llama 3.1 70B"
     }
   ],
   "ollama": [
